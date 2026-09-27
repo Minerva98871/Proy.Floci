@@ -1,8 +1,0 @@
-{
-    "Variables":  {
-                      "AWS_ENDPOINT_URL":  "http://floci:4566",
-                      "THUMBNAILS_BUCKET":  "lomax-miniaturas",
-                      "DYNAMODB_TABLE":  "LomaxAtributos",
-                      "ORIGINALS_BUCKET":  "lomax-originales"
-                  }
-}
