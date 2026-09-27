@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+
+COPY lambda/requirements.txt /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir --target /opt/task -r /tmp/requirements.txt
+COPY lambda/handler.py /opt/task/handler.py
+COPY scripts/create_test_image.py /tools/create_test_image.py
+COPY scripts/inspect_images.py /tools/inspect_images.py
+COPY scripts/package_lambda.py /tools/package_lambda.py
+ENV PYTHONPATH=/opt/task

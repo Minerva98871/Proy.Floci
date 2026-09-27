@@ -1,0 +1,22 @@
+[
+  {"codigo":"TEC001","atributos":{"conexion":"USB","distribucion":"Español","tipo":"Mecanico","iluminacion":"RGB"}},
+  {"codigo":"TEC002","atributos":{"conexion":"Inalambrica 2.4 GHz","tipo_sensor":"Optico","ergonomico":"Si"}},
+  {"codigo":"TEC003","atributos":{"pulgadas":"24","resolucion":"1920x1080","panel":"IPS"}},
+  {"codigo":"TEC004","atributos":{"conexion":"Bluetooth","microfono":"Integrado","cancelacion_ruido":"No"}},
+  {"codigo":"TEC005","atributos":{"resolucion":"1280x720","conexion":"USB","microfono":"Integrado"}},
+  {"codigo":"TEC006","atributos":{"conexion":"Bluetooth","potencia":"10 W","portatil":"Si"}},
+  {"codigo":"TEC007","atributos":{"capacidad":"128 GB","interfaz":"USB 3.0"}},
+  {"codigo":"HOG001","atributos":{"tipo_luz":"LED","potencia":"9 W","uso":"Escritorio"}},
+  {"codigo":"HOG002","atributos":{"conectividad":"Wi-Fi","asistente":"Alexa y Google Home"}},
+  {"codigo":"HOG003","atributos":{"resolucion":"1080p","vision_nocturna":"Si","uso":"Interior"}},
+  {"codigo":"HOG004","atributos":{"tipo_pantalla":"LED","formato_hora":"12/24 h"}},
+  {"codigo":"HOG005","atributos":{"autonomia":"90 min","conectividad":"Wi-Fi","mapeo":"Si"}},
+  {"codigo":"HOG006","atributos":{"capacidad":"180 kg","unidad":"kg/lb"}},
+  {"codigo":"HOG007","atributos":{"potencia":"Universal","puertos":"USB-A y USB-C"}},
+  {"codigo":"OFI001","atributos":{"funciones":"Impresion, escaneo y copia","conectividad":"Wi-Fi y USB"}},
+  {"codigo":"OFI002","atributos":{"digitos":"10+2","alimentacion":"Solar y bateria"}},
+  {"codigo":"OFI003","atributos":{"resolucion":"1280x720","brillo":"3500 lm","conectividad":"HDMI"}},
+  {"codigo":"OFI004","atributos":{"area_activa":"10 x 6 pulgadas","niveles_presion":"8192","conexion":"USB"}},
+  {"codigo":"OFI005","atributos":{"lectura":"1D","interfaz":"USB","tipo":"Manual"}},
+  {"codigo":"OFI006","atributos":{"capacidad":"1 TB","interfaz":"USB 3.0","formato":"Portatil"}}
+]

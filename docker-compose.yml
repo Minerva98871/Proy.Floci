@@ -1,0 +1,30 @@
+name: lomax-etapa2
+
+services:
+  floci-storage-init:
+    image: alpine:3.20
+    command: ["sh", "-c", "chown -R 1001:1001 /var/lib/floci"]
+    volumes:
+      - floci-data:/var/lib/floci
+
+  floci:
+    image: floci/floci:2.1.0-compat
+    container_name: lomax-floci
+    ports:
+      - "4567:4566"
+      - "7001-7099:7001-7099"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - floci-data:/var/lib/floci
+    environment:
+      FLOCI_HOSTNAME: floci
+      FLOCI_STORAGE_MODE: hybrid
+      FLOCI_STORAGE_PERSISTENT_PATH: /var/lib/floci
+      FLOCI_SERVICES_DOCKER_NETWORK: lomax-etapa2_default
+      FLOCI_SERVICES_RDS_ENDPOINT_HOST: localhost
+    depends_on:
+      floci-storage-init:
+        condition: service_completed_successfully
+
+volumes:
+  floci-data:
