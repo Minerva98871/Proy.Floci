@@ -1,0 +1,24 @@
+{
+    "Item":  {
+                 "codigo":  {
+                                "S":  "P4-LAMBDA-PNG"
+                            },
+                 "producto_id":  {
+                                     "N":  "113"
+                                 },
+                 "imagen_estado":  {
+                                       "S":  "LISTA"
+                                   },
+                 "atributos":  {
+                                   "M":  {
+
+                                         }
+                               },
+                 "imagen_original_key":  {
+                                             "S":  "originales/113/lomax-1200x800.png"
+                                         },
+                 "miniatura_key":  {
+                                       "S":  "miniaturas/113/c4ff50ddfd11bb8f07490326bc403f8921cf30525ca57de1a67116ff50182d32.jpg"
+                                   }
+             }
+}

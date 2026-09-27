@@ -20,6 +20,7 @@ if ([string]::IsNullOrWhiteSpace($DbPassword)) {
 $env:AWS_ACCESS_KEY_ID = "test"
 $env:AWS_SECRET_ACCESS_KEY = "test"
 $env:AWS_DEFAULT_REGION = $Region
+$env:AWS_PAGER = ""
 
 function Invoke-AwsJson {
   param([string[]]$Arguments)
@@ -114,6 +115,12 @@ function Get-DynamoItem {
   }
 }
 
+function Get-S3ObjectCount {
+  param([object]$Listing)
+  if ($null -eq $Listing.Contents) { return 0 }
+  return @($Listing.Contents).Count
+}
+
 function Invoke-Thumbnail {
   param(
     [string]$ProductId,
@@ -134,7 +141,7 @@ function Invoke-Thumbnail {
   $previousPreference = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
-    $metadataOutput = & aws lambda invoke --function-name $FunctionName --invocation-type RequestResponse --cli-binary-format raw-in-base64-out --payload "fileb://$eventPath" $responsePath --endpoint-url $endpoint --region $Region --output json 2>&1
+    $metadataOutput = & aws lambda invoke --function-name $FunctionName --invocation-type RequestResponse --cli-binary-format raw-in-base64-out --payload "fileb://$eventPath" $responsePath --cli-connect-timeout 30 --cli-read-timeout 300 --endpoint-url $endpoint --region $Region --output json 2>&1
     $exitCode = $LASTEXITCODE
   }
   finally {
@@ -182,8 +189,30 @@ try {
   $thumbnailDirectory = Join-Path $stageDirectory "miniaturas"
   New-Item -ItemType Directory -Force -Path $originalDirectory, $thumbnailDirectory | Out-Null
 
-  & (Join-Path $PSScriptRoot "setup.ps1") -DbPassword $DbPassword -Region $Region -TableName $TableName
-  if ($LASTEXITCODE -ne 0) { throw "Fallo la preparacion de Etapa 2." }
+  & docker compose up -d floci
+  if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar Floci con Docker Compose." }
+
+  $emulatorReady = $false
+  for ($attempt = 0; $attempt -lt 60; $attempt++) {
+    try {
+      $tableNames = @( (Invoke-AwsJson -Arguments @("dynamodb", "list-tables")).TableNames )
+      if ($tableNames -contains $TableName) {
+        $emulatorReady = $true
+        break
+      }
+    }
+    catch {
+      Start-Sleep -Seconds 2
+    }
+    Start-Sleep -Seconds 2
+  }
+  if (-not $emulatorReady) {
+    throw "No existe la tabla DynamoDB '$TableName'. Ejecuta primero .\\scripts\\setup.ps1."
+  }
+  $instanceDescriptions = @( (Invoke-AwsJson -Arguments @("rds", "describe-db-instances")).DBInstances )
+  if (-not ($instanceDescriptions | Where-Object { $_.DBInstanceIdentifier -eq "lomax-mysql" -and $_.DBInstanceStatus -eq "available" })) {
+    throw "No existe una instancia RDS lomax-mysql disponible. Ejecuta primero .\\scripts\\setup.ps1."
+  }
 
   foreach ($bucket in @($OriginalsBucket, $ThumbnailsBucket)) {
     $previousPreference = $ErrorActionPreference
@@ -320,7 +349,7 @@ SELECT producto_id, codigo FROM Productos WHERE codigo IN ('P4-LAMBDA-JPG', 'P4-
     if (-not $item -or $item.imagen_estado.S -ne $product.Expected) {
       throw "DynamoDB imagen_estado incorrecto para $($product.Code)."
     }
-    $rdsState = [string](Invoke-MySql -Sql "SELECT estado FROM Productos WHERE producto_id = $($productIds[$product.Code]);" -Port ([int]$rdsEndpoint.Port))[0]
+    $rdsState = [string](Invoke-MySql -Sql "SELECT estado FROM Productos WHERE producto_id = $($productIds[$product.Code]);" -Port ([int]$rdsEndpoint.Port))
     if ($rdsState -ne "PENDIENTE") {
       throw "El producto $($product.Code) quedo $rdsState en RDS; no debe publicarse en esta etapa."
     }
@@ -352,12 +381,12 @@ SELECT producto_id, codigo FROM Productos WHERE codigo IN ('P4-LAMBDA-JPG', 'P4-
 
   $jpegPrefix = "miniaturas/$jpegId/"
   $jpegObjects = Invoke-AwsJson -Arguments @("s3api", "list-objects-v2", "--bucket", $ThumbnailsBucket, "--prefix", $jpegPrefix)
-  if ($jpegObjects.KeyCount -ne 1 -or $jpegObjects.Contents[0].Key -ne $validItem.miniatura_key.S) {
+  if ((Get-S3ObjectCount $jpegObjects) -ne 1 -or $jpegObjects.Contents[0].Key -ne $validItem.miniatura_key.S) {
     throw "Tras el reintento debe existir un unico objeto miniatura con la clave guardada en DynamoDB."
   }
   foreach ($code in @("P4-LAMBDA-INVALID", "P4-LAMBDA-OVERSIZE")) {
     $failedObjects = Invoke-AwsJson -Arguments @("s3api", "list-objects-v2", "--bucket", $ThumbnailsBucket, "--prefix", "miniaturas/$($productIds[$code])/" )
-    if ($failedObjects.KeyCount -ne 0) { throw "Se creo una miniatura para $code pese al error." }
+    if ((Get-S3ObjectCount $failedObjects) -ne 0) { throw "Se creo una miniatura para $code pese al error." }
   }
 
   $jpegDownloaded = Join-Path $thumbnailDirectory "miniatura-lomax.jpg"

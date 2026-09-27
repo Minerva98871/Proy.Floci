@@ -1,0 +1,34 @@
+{
+    "Contents":  [
+                     {
+                         "Key":  "originales/112/lomax-1200x800.jpg",
+                         "LastModified":  "2026-09-27T20:59:26+00:00",
+                         "ETag":  "\"9dbced64950d224840c136bfdb7beecd\"",
+                         "Size":  18138,
+                         "StorageClass":  "STANDARD"
+                     },
+                     {
+                         "Key":  "originales/113/lomax-1200x800.png",
+                         "LastModified":  "2026-09-27T20:59:28+00:00",
+                         "ETag":  "\"332532122a5231a8b8725802fd9aeec4\"",
+                         "Size":  6044,
+                         "StorageClass":  "STANDARD"
+                     },
+                     {
+                         "Key":  "originales/114/archivo-invalido.jpg",
+                         "LastModified":  "2026-09-27T20:59:30+00:00",
+                         "ETag":  "\"a2f2c6367127d0a47ab926e95a4f6422\"",
+                         "Size":  34,
+                         "StorageClass":  "STANDARD"
+                     },
+                     {
+                         "Key":  "originales/115/imagen-mayor-a-5MiB.jpg",
+                         "LastModified":  "2026-09-27T20:59:33+00:00",
+                         "ETag":  "\"8ab420d03f1bad39feb6b4794f695e88\"",
+                         "Size":  5242881,
+                         "StorageClass":  "STANDARD"
+                     }
+                 ],
+    "RequestCharged":  null,
+    "Prefix":  "originales/"
+}

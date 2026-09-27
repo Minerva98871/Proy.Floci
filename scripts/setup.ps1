@@ -97,6 +97,7 @@ try {
   $env:AWS_ACCESS_KEY_ID = "test"
   $env:AWS_SECRET_ACCESS_KEY = "test"
   $env:AWS_DEFAULT_REGION = $Region
+  $env:AWS_PAGER = ""
 
   & docker compose up -d floci
   if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar Floci con Docker Compose." }

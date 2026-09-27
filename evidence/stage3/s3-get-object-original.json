@@ -1,0 +1,13 @@
+{
+    "AcceptRanges":  "bytes",
+    "LastModified":  "2026-09-27T20:59:26+00:00",
+    "ContentLength":  18138,
+    "ETag":  "\"9dbced64950d224840c136bfdb7beecd\"",
+    "ChecksumCRC64NVME":  "dGk0jWseOAI=",
+    "ChecksumType":  "FULL_OBJECT",
+    "ContentType":  "image/jpeg",
+    "Metadata":  {
+
+                 },
+    "StorageClass":  "STANDARD"
+}
