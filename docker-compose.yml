@@ -26,5 +26,32 @@ services:
       floci-storage-init:
         condition: service_completed_successfully
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lomax-backend
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_DEBUG: "True"
+      RDS_HOST: floci-rds-db-03F8B14296544ADC97560898-87b2f0
+      RDS_PORT: 3306
+      RDS_USER: root
+      RDS_PASSWORD: LomaxLocal2026!
+      RDS_DATABASE: lomax_catalogo
+      S3_ENDPOINT: http://lomax-floci:4566
+      DYNAMODB_ENDPOINT: http://lomax-floci:4566
+      LAMBDA_ENDPOINT: http://lomax-floci:4566
+      AWS_REGION: us-east-1
+    networks:
+      - lomax-etapa2
+    depends_on:
+      - floci
+
 volumes:
   floci-data:
+
+networks:
+  lomax-etapa2:
+    name: lomax-etapa2_default

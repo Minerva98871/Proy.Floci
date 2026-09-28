@@ -1,0 +1,27 @@
+# Flask
+FLASK_DEBUG=True
+FLASK_ENV=development
+
+# RDS MySQL
+RDS_HOST=localhost
+RDS_PORT=3306
+RDS_USER=admin        
+RDS_PASSWORD=Admin1234! 
+RDS_DATABASE=catalogo_productos 
+
+# AWS S3
+S3_ENDPOINT=http://localhost:4566
+S3_BUCKET_ORIGINALES=lomax-originales
+S3_BUCKET_MINIATURAS=lomax-miniaturas
+AWS_REGION=us-east-1
+
+# DynamoDB
+DYNAMODB_ENDPOINT=http://localhost:4566
+DYNAMODB_TABLE=lomax-atributos
+
+# Lambda
+LAMBDA_ENDPOINT=http://localhost:4566
+LAMBDA_FUNCTION=lomax-thumbnail
+
+# Límites
+MAX_IMAGE_SIZE=5242880
