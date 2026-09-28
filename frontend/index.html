@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lomax - Catálogo Premium</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <div class="container-nav">
+            <div class="logo">
+                <i class="fas fa-store"></i>
+                <span>Lomax</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#" onclick="mostrarVista('catalogo')" class="nav-link active"><i class="fas fa-th"></i> Catálogo</a></li>
+                <li><a href="#" onclick="mostrarVista('formulario')" class="nav-link"><i class="fas fa-plus-circle"></i> Registrar</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="main-container">
+        <!-- VISTA 1: FORMULARIO -->
+        <div id="vista-formulario" class="vista">
+            <div class="form-container">
+                <div class="form-header">
+                    <h2><i class="fas fa-edit"></i> Registrar Nuevo Producto</h2>
+                    <p>Complete el formulario para agregar un producto al catálogo</p>
+                </div>
+
+                <form id="formProducto" class="form-moderna">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><i class="fas fa-barcode"></i> Código</label>
+                            <input type="text" id="codigo" placeholder="Ej: TEC-001" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-tag"></i> Nombre</label>
+                            <input type="text" id="nombre" placeholder="Nombre del producto" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label><i class="fas fa-align-left"></i> Descripción</label>
+                        <textarea id="descripcion" placeholder="Describa las características del producto" rows="4" required></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><i class="fas fa-dollar-sign"></i> Precio</label>
+                            <input type="number" id="precio" placeholder="0.00" step="0.01" min="0" required>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-list"></i> Categoría</label>
+                            <select id="categoria" required>
+                                <option value="">Selecciona una categoría...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label><i class="fas fa-image"></i> Imagen (JPEG/PNG)</label>
+                        <div class="file-upload">
+                            <input type="file" id="imagen" accept="image/jpeg,image/png">
+                            <span class="file-label">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                Haz clic o arrastra una imagen
+                            </span>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit">
+                        <i class="fas fa-save"></i> Registrar Producto
+                    </button>
+                </form>
+
+                <div id="mensaje" class="mensaje-alert"></div>
+            </div>
+        </div>
+
+        <!-- VISTA 2: CATÁLOGO -->
+        <div id="vista-catalogo" class="vista activa">
+            <div class="catalogo-header">
+                <h2><i class="fas fa-shopping-bag"></i> Catálogo de Productos</h2>
+                <p class="producto-count">Total: <span id="total-productos">0</span> productos disponibles</p>
+            </div>
+
+            <div class="filtros">
+                <input type="text" id="buscar" placeholder="🔍 Buscar producto..." class="search-box">
+                <select id="filtro-categoria" class="filter-select">
+                    <option value="">Todas las categorías</option>
+                </select>
+            </div>
+
+            <div id="productos-grid" class="productos-grid">
+                <div class="loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <p>Cargando productos...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- VISTA 3: DETALLE -->
+        <div id="vista-detalle" class="vista">
+            <button onclick="mostrarVista('catalogo')" class="btn-volver">
+                <i class="fas fa-arrow-left"></i> Volver al Catálogo
+            </button>
+            <div id="detalle-producto" class="detalle-container"></div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>&copy; 2026 Lomax - Catálogo de Productos. Todos los derechos reservados.</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

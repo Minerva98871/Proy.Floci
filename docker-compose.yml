@@ -49,6 +49,18 @@ services:
     depends_on:
       - floci
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lomax-frontend
+    ports:
+      - "80:80"
+    networks:
+      - lomax-etapa2
+    depends_on:
+      - backend
+
 volumes:
   floci-data:
 
