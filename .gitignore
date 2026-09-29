@@ -1,2 +1,12 @@
 .floci/
 *.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Artefactos de las pruebas de integracion
+miniatura_descargada_*.jpg
+evidence/

@@ -70,9 +70,14 @@ function actualizarGrid(productos) {
         card.className = 'producto-card';
         card.onclick = () => verDetalle(prod.producto_id);
         
+        // La miniatura la genera lambda/handler.py y la sirve el backend
+        const imagen = prod.miniatura_disponible
+            ? `<img src="${API_URL}${prod.miniatura_url}" alt="${prod.nombre}" loading="lazy">`
+            : '<i class="fas fa-box"></i>';
+        
         card.innerHTML = `
             <div class="producto-imagen">
-                <i class="fas fa-box"></i>
+                ${imagen}
             </div>
             <div class="producto-info">
                 <h3>${prod.nombre}</h3>
@@ -133,7 +138,9 @@ async function verDetalle(id) {
                 <div class="detalle-grid">
                     <div>
                         <div class="producto-imagen" style="height: 300px; margin-bottom: 1rem;">
-                            <i class="fas fa-box" style="font-size: 4rem;"></i>
+                            ${prod.miniatura_disponible
+                                ? `<img src="${API_URL}/productos/${id}/imagen" alt="${prod.nombre}" style="width:100%; height:100%; object-fit:contain;">`
+                                : '<i class="fas fa-box" style="font-size: 4rem;"></i>'}
                         </div>
                     </div>
                     <div>
@@ -221,9 +228,19 @@ document.getElementById('formProducto')?.addEventListener('submit', async (e) =>
                 body: formData
             });
             
+            const data2 = await res2.json();
+            
+            // El endpoint responde 200 tambien cuando la Lambda no logra
+            // generar la miniatura, asi que hay que mirar el estado real.
             if (!res2.ok) {
-                const err = await res2.json();
-                mostrarMensaje('⚠️ Imagen: ' + (err.error || 'Error subiendo imagen'), 'error');
+                mostrarMensaje('⚠️ Imagen: ' + (data2.error || 'Error subiendo imagen'), 'error');
+            } else if (data2.estado !== 'PUBLICADO') {
+                mostrarMensaje(
+                    `⚠️ Producto #${producto_id} creado pero la imagen no se procesó ` +
+                    `(${data2.estado_procesamiento || 'ERROR'}). ` +
+                    `Reintenta desde el detalle del producto.`,
+                    'error'
+                );
             } else {
                 mostrarMensaje(`✅ Producto #${producto_id} registrado y publicado exitosamente`, 'exito');
             }

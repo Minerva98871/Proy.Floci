@@ -1,27 +1,35 @@
-# Flask
-FLASK_DEBUG=True
-FLASK_ENV=development
+# Copia este archivo como .env y ajusta los valores si es necesario.
+# Los valores por defecto de backend/config.py coinciden con los que crean
+# scripts/setup.ps1 y scripts/stage3.ps1, asi que no es obligatorio definirlo.
+#
+# OJO: desde el host Floci esta en el puerto 4567 (docker-compose.yml); desde
+# otro contenedor de la red de compose se usa http://lomax-floci:4566.
 
-# RDS MySQL
+# Flask
+FLASK_DEBUG=False
+
+# RDS MySQL (lo crea scripts/setup.ps1 en la instancia lomax-mysql)
 RDS_HOST=localhost
 RDS_PORT=3306
-RDS_USER=admin        
-RDS_PASSWORD=Admin1234! 
-RDS_DATABASE=catalogo_productos 
+RDS_USER=lomax
+RDS_PASSWORD=LomaxLocal2026!
+RDS_DATABASE=lomax_catalogo
 
 # AWS S3
-S3_ENDPOINT=http://localhost:4566
+S3_ENDPOINT=http://localhost:4567
 S3_BUCKET_ORIGINALES=lomax-originales
 S3_BUCKET_MINIATURAS=lomax-miniaturas
+S3_ORIGINALES_PREFIX=originales
 AWS_REGION=us-east-1
 
 # DynamoDB
-DYNAMODB_ENDPOINT=http://localhost:4566
-DYNAMODB_TABLE=lomax-atributos
+DYNAMODB_ENDPOINT=http://localhost:4567
+DYNAMODB_TABLE=LomaxAtributos
 
 # Lambda
-LAMBDA_ENDPOINT=http://localhost:4566
+LAMBDA_ENDPOINT=http://localhost:4567
 LAMBDA_FUNCTION=lomax-thumbnail
+LAMBDA_TIMEOUT=60
 
-# Límites
+# Limites
 MAX_IMAGE_SIZE=5242880

@@ -1,15 +1,28 @@
 #!/usr/bin/env python3
 """
-Script para probar todos los endpoints de la API
-Ejecutar después de que el backend esté corriendo
+Prueba de integracion de los 7 endpoints de la API (Etapa 4).
+
+Requiere la pila levantada (scripts/setup.ps1, scripts/stage3.ps1 y
+docker compose up -d backend frontend) y una imagen valida en la raiz del
+proyecto.
+
+Uso:  python backend/test_endpoints.py
+Salida: 0 si todo pasa, 1 si algun endpoint no cumple lo esperado.
 """
 
-import requests
 import json
 import sys
+import uuid
 from pathlib import Path
 
+import requests
+
 BASE_URL = "http://localhost:5000"
+RAIZ = Path(__file__).resolve().parent.parent
+IMAGEN = RAIZ / "original_112.jpg"
+
+resultados = []
+
 
 class Colors:
     GREEN = '\033[92m'
@@ -18,298 +31,208 @@ class Colors:
     BLUE = '\033[94m'
     RESET = '\033[0m'
 
-def print_test(titulo):
-    print(f"\n{Colors.BLUE}{'='*70}")
-    print(f"TEST: {titulo}")
-    print(f"{'='*70}{Colors.RESET}")
 
-def print_success(msg):
-    print(f"{Colors.GREEN}✓ {msg}{Colors.RESET}")
-
-def print_error(msg):
-    print(f"{Colors.RED}✗ {msg}{Colors.RESET}")
-
-def print_info(msg):
-    print(f"{Colors.YELLOW}ℹ {msg}{Colors.RESET}")
-
-# ============================================================================
-# TEST 1: GET /categorias
-# ============================================================================
-def test_get_categorias():
-    print_test("GET /categorias")
-    try:
-        response = requests.get(f"{BASE_URL}/categorias")
-        print(f"Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"Categorías encontradas: {data['count']}")
-            for cat in data['data']:
-                print(f"  - {cat['nombre']} (ID: {cat['categoria_id']})")
-            print_success("GET /categorias OK")
-            return data['data']
-        else:
-            print_error(f"Error: {response.text}")
-            return []
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-        return []
-
-
-# ============================================================================
-# TEST 2: POST /productos
-# ============================================================================
-def test_post_productos(categorias):
-    print_test("POST /productos")
-    try:
-        if not categorias:
-            print_error("No hay categorías disponibles")
-            return None
-        
-        categoria_id = categorias[0]['categoria_id']
-        
-        payload = {
-            "codigo": "TEST-001",
-            "nombre": "Producto de Prueba",
-            "descripcion": "Este es un producto para probar la API",
-            "precio": 99.99,
-            "categoria_id": categoria_id,
-            "atributos": {
-                "conexion": "USB",
-                "color": "Negro",
-                "garantia": "12 meses"
-            }
-        }
-        
-        print(f"Payload: {json.dumps(payload, indent=2)}")
-        
-        response = requests.post(f"{BASE_URL}/productos", json=payload)
-        print(f"Status: {response.status_code}")
-        
-        data = response.json()
-        print(f"Respuesta: {json.dumps(data, indent=2)}")
-        
-        if response.status_code == 201:
-            print_success("Producto creado")
-            return data['producto_id']
-        else:
-            print_error(f"Error: {data}")
-            return None
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-        return None
-
-
-# ============================================================================
-# TEST 3: GET /productos/{id}
-# ============================================================================
-def test_get_producto(producto_id):
-    print_test(f"GET /productos/{producto_id}")
-    try:
-        response = requests.get(f"{BASE_URL}/productos/{producto_id}")
-        print(f"Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"Respuesta: {json.dumps(data, indent=2)}")
-            print_success("Producto obtenido")
-        else:
-            print_error(f"Error: {response.text}")
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-
-
-# ============================================================================
-# TEST 4: POST /productos/{id}/imagen
-# ============================================================================
-def test_post_imagen(producto_id):
-    print_test(f"POST /productos/{producto_id}/imagen")
-    try:
-        # Buscar imagen de prueba
-        imagen_path = Path("./original_112.jpg")
-        
-        if not imagen_path.exists():
-            print_error(f"Imagen no encontrada en {imagen_path}")
-            print_info("Se debe usar una imagen válida para esta prueba")
-            return
-        
-        with open(imagen_path, 'rb') as f:
-            files = {'file': f}
-            response = requests.post(f"{BASE_URL}/productos/{producto_id}/imagen", files=files)
-        
-        print(f"Status: {response.status_code}")
-        data = response.json()
-        print(f"Respuesta: {json.dumps(data, indent=2)}")
-        
-        if response.status_code == 200:
-            print_success("Imagen subida y procesada")
-        else:
-            print_error(f"Error: {data}")
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-
-
-# ============================================================================
-# TEST 5: GET /productos/{id}/imagen
-# ============================================================================
-def test_get_imagen(producto_id):
-    print_test(f"GET /productos/{producto_id}/imagen")
-    try:
-        response = requests.get(f"{BASE_URL}/productos/{producto_id}/imagen")
-        print(f"Status: {response.status_code}")
-        print(f"Content-Type: {response.headers.get('Content-Type')}")
-        print(f"Content-Length: {len(response.content)} bytes")
-        
-        if response.status_code == 200:
-            print_success("Miniatura obtenida")
-            
-            # Guardar para comparar
-            with open(f"miniatura_descargada_{producto_id}.jpg", 'wb') as f:
-                f.write(response.content)
-            print_info(f"Miniatura guardada en miniatura_descargada_{producto_id}.jpg")
-        else:
-            print_error(f"Error: {response.text}")
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-
-
-# ============================================================================
-# TEST 6: GET /productos
-# ============================================================================
-def test_get_productos():
-    print_test("GET /productos")
-    try:
-        response = requests.get(f"{BASE_URL}/productos")
-        print(f"Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"Productos publicados: {data['count']}")
-            for prod in data['data']:
-                print(f"  - {prod['nombre']} (ID: {prod['producto_id']}, Precio: ${prod['precio']})")
-            print_success("Lista de productos obtenida")
-        else:
-            print_error(f"Error: {response.text}")
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-
-
-# ============================================================================
-# TEST 7: POST /productos/{id}/reprocesar
-# ============================================================================
-def test_reprocesar_imagen(producto_id):
-    print_test(f"POST /productos/{producto_id}/reprocesar")
-    try:
-        response = requests.post(f"{BASE_URL}/productos/{producto_id}/reprocesar")
-        print(f"Status: {response.status_code}")
-        
-        data = response.json()
-        print(f"Respuesta: {json.dumps(data, indent=2)}")
-        
-        if response.status_code == 200:
-            print_success("Imagen reprocesada")
-        else:
-            print_error(f"Error: {data}")
-    except Exception as e:
-        print_error(f"Excepción: {e}")
-
-
-# ============================================================================
-# TEST 8: Errores esperados
-# ============================================================================
-def test_errores():
-    print_test("Validación de errores")
-    
-    # 400: Datos inválidos
-    print_info("Probando 400 - Datos inválidos...")
-    response = requests.post(f"{BASE_URL}/productos", json={})
-    if response.status_code == 400:
-        print_success("400 obtenido correctamente")
+def check(nombre, condicion, detalle=""):
+    resultados.append((nombre, bool(condicion)))
+    if condicion:
+        print(f"  {Colors.GREEN}[OK]{Colors.RESET}   {nombre}")
     else:
-        print_error(f"Se esperaba 400, se obtuvo {response.status_code}")
-    
-    # 409: Código duplicado
-    print_info("Probando 409 - Código duplicado...")
-    payload = {
-        "codigo": "TEST-001",
-        "nombre": "Prueba",
-        "descripcion": "Prueba",
-        "precio": 50,
-        "categoria_id": 1,
-        "atributos": {}
-    }
-    response = requests.post(f"{BASE_URL}/productos", json=payload)
-    if response.status_code == 409:
-        print_success("409 obtenido correctamente")
-    else:
-        print_error(f"Se esperaba 409, se obtuvo {response.status_code}")
-    
-    # 404: Producto no existe
-    print_info("Probando 404 - Producto no existe...")
-    response = requests.get(f"{BASE_URL}/productos/99999")
-    if response.status_code == 404:
-        print_success("404 obtenido correctamente")
-    else:
-        print_error(f"Se esperaba 404, se obtuvo {response.status_code}")
+        print(f"  {Colors.RED}[FALLA]{Colors.RESET} {nombre}  {Colors.YELLOW}{detalle}{Colors.RESET}")
 
 
-# ============================================================================
-# TEST 9: Health Check
+def titulo(texto):
+    print(f"\n{Colors.BLUE}{'=' * 72}\n{texto}\n{'=' * 72}{Colors.RESET}")
+
+
+def esperar_json(response):
+    try:
+        return response.json()
+    except ValueError:
+        return {"_cuerpo_no_json": response.text[:300]}
+
+
 # ============================================================================
 def test_health():
-    print_test("Health Check")
+    titulo("GET /health")
     try:
-        response = requests.get(f"{BASE_URL}/health")
-        print(f"Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            print_success("API disponible")
-        else:
-            print_error("API no disponible")
-    except Exception as e:
-        print_error(f"Excepción: {e}")
+        r = requests.get(f"{BASE_URL}/health", timeout=15)
+    except requests.RequestException as e:
+        check("backend accesible", False, str(e))
+        return False
+    check("responde 200", r.status_code == 200, f"status={r.status_code}")
+    return r.status_code == 200
 
 
-# ============================================================================
-# MAIN
-# ============================================================================
+def test_categorias():
+    titulo("GET /categorias")
+    r = requests.get(f"{BASE_URL}/categorias", timeout=30)
+    data = esperar_json(r)
+    check("responde 200", r.status_code == 200, f"status={r.status_code} {data}")
+    check("devuelve categorias", data.get("count", 0) > 0, json.dumps(data)[:200])
+    return data.get("data", [])
+
+
+def test_crear_producto(categorias):
+    titulo("POST /productos")
+    if not categorias:
+        check("hay categorias para probar", False)
+        return None
+
+    codigo = f"TEST-{uuid.uuid4().hex[:8].upper()}"
+    payload = {
+        "codigo": codigo,
+        "nombre": "Producto de prueba",
+        "descripcion": "Producto creado por test_endpoints.py",
+        "precio": 99.99,
+        "categoria_id": categorias[0]["categoria_id"],
+        "atributos": {"conexion": "USB", "color": "Negro"}
+    }
+    r = requests.post(f"{BASE_URL}/productos", json=payload, timeout=30)
+    data = esperar_json(r)
+    check("responde 201", r.status_code == 201, f"status={r.status_code} {data}")
+    producto_id = data.get("producto_id")
+    check("devuelve producto_id", producto_id is not None, json.dumps(data)[:200])
+    check("estado inicial PENDIENTE", data.get("estado") == "PENDIENTE", json.dumps(data)[:200])
+
+    # 409: el mismo codigo no puede repetirse
+    r2 = requests.post(f"{BASE_URL}/productos", json=payload, timeout=30)
+    check("codigo duplicado -> 409", r2.status_code == 409, f"status={r2.status_code}")
+
+    # 400: precio negativo
+    malo = dict(payload, codigo=f"{codigo}-N", precio=-1)
+    r3 = requests.post(f"{BASE_URL}/productos", json=malo, timeout=30)
+    check("precio negativo -> 400", r3.status_code == 400, f"status={r3.status_code}")
+
+    # 400: categoria inexistente
+    malo = dict(payload, codigo=f"{codigo}-C", categoria_id=999999)
+    r4 = requests.post(f"{BASE_URL}/productos", json=malo, timeout=30)
+    check("categoria inexistente -> 400", r4.status_code == 400, f"status={r4.status_code}")
+
+    return producto_id
+
+
+def test_registro_dynamodb(producto_id):
+    titulo("GET /productos/{id} - registro en DynamoDB")
+    r = requests.get(f"{BASE_URL}/productos/{producto_id}", timeout=30)
+    data = esperar_json(r)
+    check("responde 200", r.status_code == 200, f"status={r.status_code} {data}")
+    if r.status_code != 200:
+        return
+    detalle = data.get("data", {})
+    check("atributos guardados en DynamoDB", detalle.get("atributos") != {}, json.dumps(detalle)[:200])
+    check("imagen_estado inicial PENDIENTE",
+          detalle.get("estado_imagen") == "PENDIENTE", f"estado_imagen={detalle.get('estado_imagen')}")
+
+
+def test_subir_imagen(producto_id):
+    titulo(f"POST /productos/{producto_id}/imagen - procesamiento con Lambda")
+    if not IMAGEN.exists():
+        check("imagen de prueba disponible", False, f"falta {IMAGEN}")
+        return
+
+    with open(IMAGEN, "rb") as f:
+        r = requests.post(
+            f"{BASE_URL}/productos/{producto_id}/imagen",
+            files={"file": (IMAGEN.name, f, "image/jpeg")},
+            timeout=180,
+        )
+    data = esperar_json(r)
+    check("responde 200", r.status_code == 200, f"status={r.status_code} {data}")
+
+    # Este es el punto critico: la Lambda debe devolver estado LISTA y el
+    # producto debe quedar PUBLICADO en RDS.
+    check("Lambda devolvio LISTA", data.get("estado_procesamiento") == "LISTA",
+          f"estado={data.get('estado_procesamiento')} detalle={data.get('detalle')}")
+    check("producto PUBLICADO en RDS", data.get("estado") == "PUBLICADO",
+          f"estado={data.get('estado')}")
+    check("original registrado", bool(data.get("imagen_original")),
+          json.dumps(data)[:200])
+
+
+def test_obtener_imagen(producto_id):
+    titulo(f"GET /productos/{producto_id}/imagen - miniatura")
+    r = requests.get(f"{BASE_URL}/productos/{producto_id}/imagen", timeout=60)
+    check("responde 200", r.status_code == 200, f"status={r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    check("content-type JPEG", r.headers.get("Content-Type", "").startswith("image/jpeg"),
+          r.headers.get("Content-Type", ""))
+    check("son bytes de imagen", len(r.content) > 100, f"{len(r.content)} bytes")
+    destino = RAIZ / f"miniatura_descargada_{producto_id}.jpg"
+    destino.write_bytes(r.content)
+    print(f"  {Colors.YELLOW}miniatura guardada en {destino.name}{Colors.RESET}")
+
+
+def test_reprocesar(producto_id):
+    titulo(f"POST /productos/{producto_id}/reprocesar")
+    r = requests.post(f"{BASE_URL}/productos/{producto_id}/reprocesar", timeout=180)
+    data = esperar_json(r)
+    check("responde 200", r.status_code == 200, f"status={r.status_code} {data}")
+    check("reproceso deja la imagen LISTA", data.get("estado_procesamiento") == "LISTA",
+          f"estado={data.get('estado_procesamiento')} detalle={data.get('detalle')}")
+    check("producto sigue PUBLICADO", data.get("estado_rds") == "PUBLICADO",
+          f"estado_rds={data.get('estado_rds')}")
+
+
+def test_lista_publicados():
+    titulo("GET /productos - solo publicados")
+    r = requests.get(f"{BASE_URL}/productos", timeout=60)
+    data = esperar_json(r)
+    check("responde 200", r.status_code == 200, f"status={r.status_code} {data}")
+    if r.status_code != 200:
+        return
+    check("hay al menos un publicado", data.get("count", 0) > 0, "lista vacia")
+    check("ninguno en PENDIENTE",
+          all(p.get("estado") == "PUBLICADO" for p in data.get("data", [])),
+          "aparecen productos no publicados")
+
+
+def test_404():
+    titulo("Errores")
+    r = requests.get(f"{BASE_URL}/productos/999999", timeout=30)
+    check("producto inexistente -> 404", r.status_code == 404, f"status={r.status_code}")
+
+    r = requests.post(f"{BASE_URL}/productos", json={}, timeout=30)
+    check("payload vacio -> 400", r.status_code == 400, f"status={r.status_code}")
+
+    r = requests.post(f"{BASE_URL}/productos/999999/reprocesar", timeout=30)
+    check("reprocesar inexistente -> 404", r.status_code == 404, f"status={r.status_code}")
+
+
 def main():
-    print(f"{Colors.BLUE}┌{'─'*68}┐")
-    print(f"│ TESTING ETAPA 4 - BACKEND API LOMAX                            │")
-    print(f"└{'─'*68}┘{Colors.RESET}")
-    
-    # Test básico
-    test_health()
-    
-    # Test categorías
-    categorias = test_get_categorias()
-    
-    # Test crear producto
-    producto_id = test_post_productos(categorias)
-    
+    print(f"{Colors.BLUE}{'=' * 72}")
+    print("ETAPA 4 - PRUEBA DE INTEGRACION DE LA API LOMAX")
+    print(f"{'=' * 72}{Colors.RESET}")
+
+    if not test_health():
+        print(f"\n{Colors.RED}El backend no responde en {BASE_URL}. "
+              f"Levantalo con: docker compose up -d backend{Colors.RESET}")
+        return 1
+
+    categorias = test_categorias()
+    producto_id = test_crear_producto(categorias)
+
     if producto_id:
-        # Test obtener producto
-        test_get_producto(producto_id)
-        
-        # Test subir imagen
-        test_post_imagen(producto_id)
-        
-        # Test obtener imagen
-        test_get_imagen(producto_id)
-        
-        # Test reprocesar
-        test_reprocesar_imagen(producto_id)
-    
-    # Test lista de productos
-    test_get_productos()
-    
-    # Test errores
-    test_errores()
-    
-    print(f"\n{Colors.BLUE}{'='*70}")
-    print(f"TESTING COMPLETADO")
-    print(f"{'='*70}{Colors.RESET}")
+        test_registro_dynamodb(producto_id)
+        test_subir_imagen(producto_id)
+        test_obtener_imagen(producto_id)
+        test_reprocesar(producto_id)
+
+    test_lista_publicados()
+    test_404()
+
+    ok = sum(1 for _, p in resultados if p)
+    total = len(resultados)
+    print(f"\n{Colors.BLUE}{'=' * 72}")
+    color = Colors.GREEN if ok == total else Colors.RED
+    print(f"{color}RESULTADO: {ok}/{total} comprobaciones OK{Colors.RESET}")
+    if ok != total:
+        for nombre, paso in resultados:
+            if not paso:
+                print(f"  {Colors.RED}- {nombre}{Colors.RESET}")
+    print(f"{'=' * 72}{Colors.RESET}")
+    return 0 if ok == total else 1
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    sys.exit(main())

@@ -92,3 +92,76 @@ Guarda capturas legibles dentro de `evidence/stage3/` o insértalas en el inform
 5. **Imagen inválida y límite:** muestra `lambda-invalida-response.json` y `lambda-mayor-a-5MiB-response.json` con `estado: ERROR`, `dynamodb-get-item-invalida.json` con `imagen_estado: ERROR` y sin `miniatura_key`, `rds-estados-pendientes.txt` con los productos `PENDIENTE`, y `s3-list-objects-miniaturas.json` sin objetos para esos productos.
 
 Las respuestas de AWS CLI prueban además que el transporte no reportó `FunctionError`; el campo `estado` y la verificación del objeto son la prueba funcional. El script termina con error si las dimensiones no son exactamente 1200 x 800 y 300 x 200, si la clave cambia al reintentar, si aparece más de una miniatura JPEG, si DynamoDB no coincide o si se publica un producto.
+
+## Etapa 4: API Flask
+
+Siete endpoints sobre RDS, DynamoDB, S3 y Lambda. Ver `backend/app.py`.
+
+| Método | Ruta | Respuesta |
+| --- | --- | --- |
+| GET | `/categorias` | 200 con las categorías de RDS |
+| POST | `/productos` | 201 con `producto_id` y estado `PENDIENTE`; 400 datos inválidos, 409 código duplicado, 400 categoría inexistente |
+| POST | `/productos/{id}/imagen` | 200 con `PUBLICADO` si la Lambda genera la miniatura; 413 > 5 MiB, 415 formato no permitido, 404 producto inexistente |
+| POST | `/productos/{id}/reprocesar` | 200; 409 si no hay original, 404 si el producto no existe |
+| GET | `/productos` | 200 solo con productos `PUBLICADO` |
+| GET | `/productos/{id}` | 200 con detalle; 404 si no existe |
+| GET | `/productos/{id}/imagen` | 200 con los bytes de la miniatura; 404 si no hay |
+| GET | `/health` | 200 |
+
+### Contrato con la Lambda
+
+La invocación es síncrona y el payload debe coincidir con lo que lee `lambda/handler.py`:
+
+```json
+{"producto_id": "42", "bucket": "lomax-originales", "clave_original": "originales/42/foto.jpg"}
+```
+
+El handler responde un objeto plano con `estado` (`LISTA` o `ERROR`) y, cuando corresponde, `miniatura_key`. El backend solo marca el producto como `PUBLICADO` en RDS si la respuesta trae `estado=LISTA` **y** una `miniatura_key`; en caso contrario deja el producto en `PENDIENTE` y borra la `miniatura_key` de DynamoDB para que no apunte a un objeto inexistente.
+
+`GET /productos/{id}/imagen` no reconstruye la clave: la lee del item de DynamoDB, porque el hash de la clave lo calcula el handler y no es reproducible en el backend.
+
+Los nombres de atributo que comparten RDS y DynamoDB son `producto_id`, `codigo`, `atributos`, `imagen_estado`, `imagen_original_key`, `miniatura_key` e `imagen_error`.
+
+### Comprobación de contratos
+
+Los nombres de evento, atributos y claves se pueden desincronizar sin que nada falle visiblemente hasta la primera carga de imagen. Para detectarlo:
+
+```powershell
+python scripts\verify_contracts.py
+```
+
+Parsea el AST de `lambda/handler.py` y de los módulos del backend y compara el evento enviado, los atributos de DynamoDB y la clave de la miniatura. No necesita Docker ni dependencias. Sale con código 1 si algo no coincide.
+
+### Pruebas de integración
+
+Con la pila levantada:
+
+```powershell
+docker compose up -d backend frontend
+python backend\test_endpoints.py
+```
+
+Recorre el flujo completo: crea un producto, sube la imagen, verifica que la Lambda devuelve `LISTA`, que el producto queda `PUBLICADO`, que la miniatura se descarga y que el reproceso es idempotente. Sale con código 1 si alguna comprobación falla.
+
+## Etapa 5: Frontend
+
+`frontend/` es un dashboard estático servido por nginx en el puerto `80`. Habla con la API en `http://localhost:5000` mediante CORS. Muestra únicamente productos `PUBLICADO` y usa la miniatura que generó la Lambda en la tarjeta y en la ficha de detalle.
+
+```powershell
+docker compose up -d backend frontend
+```
+
+## Configuración
+
+`backend/config.py` centraliza la configuración por variables de entorno; `backend/ENV_EJEMPLO` documenta todas. Los valores por defecto coinciden con los que crean `scripts/setup.ps1` y `scripts/stage3.ps1`, y `docker-compose.yml` los sobrescribe para el contenedor:
+
+| Dato | Valor |
+| --- | --- |
+| Endpoint de Floci | `4567` desde el host, `4566` dentro de la red de compose |
+| Instancia RDS | `lomax-mysql`, base `lomax_catalogo`, usuario `lomax` |
+| Tabla DynamoDB | `LomaxAtributos` |
+| Buckets S3 | `lomax-originales`, `lomax-miniaturas` |
+| Función Lambda | `lomax-thumbnail` |
+| Prefijo de originales | `originales/<producto_id>/<archivo>` |
+
+La clave de la miniatura es determinista: `miniaturas/<producto_id>/<sha256(bucket/clave_original)>.jpg`, por lo que reprocesar la misma imagen reemplaza el mismo objeto en lugar de acumular duplicados.
