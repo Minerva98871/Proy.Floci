@@ -9,6 +9,22 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
+def cerrar_conexion(conn):
+    """
+    Cierra la conexión ignorando los errores de cierre.
+
+    mysql.connector no expone is_closed(), que pertenece a MySQLdb, asi que
+    preguntar por el estado lanzaba AttributeError y convertia cada operacion
+    posterior al try en un 502, aunque la consulta ya hubiera funcionado.
+    """
+    if conn is None:
+        return
+    try:
+        conn.close()
+    except Error as e:
+        logger.warning(f"No se pudo cerrar la conexion RDS: {e}")
+
+
 class RDSDatabase:
     """Gestor de conexiones y operaciones en RDS"""
 
@@ -115,8 +131,7 @@ class RDSDatabase:
             logger.error(f"Error creando producto: {e}")
             return None, str(e)
         finally:
-            if conn is not None and not conn.is_closed():
-                conn.close()
+            cerrar_conexion(conn)
 
     @staticmethod
     def obtener_producto(producto_id):
@@ -139,8 +154,7 @@ class RDSDatabase:
             logger.error(f"Error obteniendo producto: {e}")
             return None
         finally:
-            if conn is not None and not conn.is_closed():
-                conn.close()
+            cerrar_conexion(conn)
 
     @staticmethod
     def obtener_productos_publicados():
@@ -169,8 +183,7 @@ class RDSDatabase:
             logger.error(f"Error obteniendo productos: {e}")
             return None
         finally:
-            if conn is not None and not conn.is_closed():
-                conn.close()
+            cerrar_conexion(conn)
 
     @staticmethod
     def eliminar_producto(producto_id):
@@ -196,8 +209,7 @@ class RDSDatabase:
             logger.error(f"Error revirtiendo producto {producto_id}: {e}")
             return False
         finally:
-            if conn is not None and not conn.is_closed():
-                conn.close()
+            cerrar_conexion(conn)
 
     @staticmethod
     def actualizar_estado_producto(producto_id, estado):
@@ -219,5 +231,4 @@ class RDSDatabase:
             logger.error(f"Error actualizando estado: {e}")
             return False
         finally:
-            if conn is not None and not conn.is_closed():
-                conn.close()
+            cerrar_conexion(conn)

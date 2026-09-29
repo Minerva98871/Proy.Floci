@@ -1,0 +1,22 @@
+# Service interno del backend. Es lo que hace posible el escalamiento: los
+# Pods son efimers y sus IP cambian al recrearse, pero el proxy siempre habla
+# con "lomax-backend" y Kubernetes reparte el trafico entre las replicas
+# listas. El Service espera a que readinessProbe pase, asi que un Pod que aun
+# no conecta con RDS no recibe solicitudes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lomax-backend
+  namespace: lomax
+  labels:
+    app: lomax-backend
+    app.kubernetes.io/part-of: lomax-sa
+spec:
+  type: ClusterIP
+  selector:
+    app: lomax-backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      protocol: TCP

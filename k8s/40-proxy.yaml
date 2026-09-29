@@ -1,0 +1,81 @@
+# Reverse proxy: la entrada unica de usuarios, tambien en Kubernetes.
+#
+# Los upstreams se inyectan por variable de entorno en lugar de estar fijos en
+# la imagen, de modo que el mismo binario sirve en Docker Compose y aqui:
+# solo cambian los nombres de los Services.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lomax-proxy
+  namespace: lomax
+  labels:
+    app: lomax-proxy
+    app.kubernetes.io/part-of: lomax-sa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lomax-proxy
+  template:
+    metadata:
+      labels:
+        app: lomax-proxy
+    spec:
+      containers:
+        - name: proxy
+          image: localhost:4566/000000000000/us-east-1/lomax-proxy:__IMAGE_TAG__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: LOMAX_BACKEND
+              value: "lomax-backend:5000"
+            - name: LOMAX_FRONTEND
+              value: "lomax-frontend:80"
+          readinessProbe:
+            httpGet:
+              path: /proxy-health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /proxy-health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# NodePort para exponer el proxy fuera del cluster.
+#
+# En AWS real esto seria un Service type LoadBalancer detrás de un ALB o un
+# Ingress con el controlador de AWS. El NodePort se deja declarado porque es la
+# via equivalente cuando el clúster se emula en un solo nodo.
+#
+# scripts/stage7_eks.ps1 publica este NodePort con kubectl port-forward, ya que
+# el contenedor k3s de Floci solo expone su API server en el host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lomax-proxy
+  namespace: lomax
+  labels:
+    app: lomax-proxy
+    app.kubernetes.io/part-of: lomax-sa
+spec:
+  type: NodePort
+  selector:
+    app: lomax-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080
+      protocol: TCP

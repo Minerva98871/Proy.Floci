@@ -13,6 +13,16 @@ services:
     ports:
       - "4567:4566"
       - "7001-7099:7001-7099"
+      # El API server de EKS NO se publica aqui. Floci levanta un contenedor
+      # k3s por cluster y ese contenedor ya enlaza su puerto (6500-6599)
+      # directamente en el host. Publicar el rango aqui lo ocupa entero y
+      # Floci responde "No free port available in range 6500-6599".
+      #
+      # El plano de datos de ECR (docker push/pull) lo sirve el propio 4566:
+      # Floci hace de proxy hacia su contenedor registry:2, cuyo puerto
+      # 5100 es loopback-only y no debe publicarse. Se publica 4566 sin
+      # remapear porque docker push necesita la referencia que devuelve la API.
+      - "4566:4566"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - floci-data:/var/lib/floci
@@ -22,6 +32,17 @@ services:
       FLOCI_STORAGE_PERSISTENT_PATH: /var/lib/floci
       FLOCI_SERVICES_DOCKER_NETWORK: lomax-etapa2_default
       FLOCI_SERVICES_RDS_ENDPOINT_HOST: localhost
+      # En Windows el daemon de Docker no resuelve *.localhost, que es el
+      # esquema hostname queFloci usa por defecto. El esquema 'path' devuelve
+      # localhost:<puerto>/<cuenta>/<region>/<repo>, que si resuelve.
+      FLOCI_SERVICES_ECR_URI_STYLE: "path"
+      # EKS: clúster k3s real, con webhook de token y espejo de ECR para
+      # que los Pods puedan descargar las imágenes publicadas en la etapa 6.
+      FLOCI_SERVICES_EKS_ENABLED: "true"
+      FLOCI_SERVICES_EKS_MOCK: "false"
+      FLOCI_SERVICES_EKS_IAM_AUTH_WEBHOOK: "true"
+      FLOCI_SERVICES_EKS_ECR_REGISTRY_MIRROR: "true"
+      FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN: "true"
     depends_on:
       floci-storage-init:
         condition: service_completed_successfully
@@ -62,12 +83,31 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: lomax-frontend
-    ports:
-      - "80:80"
+    # Sin puertos publicados: el frontend solo es alcanzable a traves del proxy,
+    # que es la entrada de usuarios segun el diseno de la arquitectura.
     networks:
       - lomax-etapa2
     depends_on:
       - backend
+
+  proxy:
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    container_name: lomax-proxy
+    ports:
+      # El 80 esta reservado en este equipo, por eso el proxy publica en 8080.
+      - "${LOMAX_PROXY_PORT:-8080}:80"
+    networks:
+      - lomax-etapa2
+    environment:
+      # Nombres de servicio de Compose; en Kubernetes los sobreescribe el
+      # Deployment con lomax-backend y lomax-frontend.
+      LOMAX_BACKEND: "backend:5000"
+      LOMAX_FRONTEND: "frontend:80"
+    depends_on:
+      - backend
+      - frontend
 
 volumes:
   floci-data:

@@ -1,4 +1,11 @@
-const API_URL = 'http://localhost:5000';
+// Entrada unica de la aplicacion: el reverse proxy sirve el frontend y
+// reenvia /api al backend Flask. Al estar todo en el mismo origen, el
+// navegador no necesita CORS.
+// Se puede redefinir con window.LOMAX_API_BASE para apuntar al backend
+// directamente (por ejemplo al probar endpoints sin el proxy).
+const API_BASE = window.LOMAX_API_BASE ?? '/api';
+const api = (ruta) => `${API_BASE}${ruta}`;
+
 let productosCache = [];
 
 // MOSTRAR VISTA
@@ -17,7 +24,7 @@ function mostrarVista(vista) {
 // CARGAR CATEGORÍAS
 async function cargarCategorias() {
     try {
-        const res = await fetch(`${API_URL}/categorias`);
+        const res = await fetch(api('/categorias'));
         const data = await res.json();
         
         const selectRegistro = document.getElementById('categoria');
@@ -42,7 +49,7 @@ async function cargarCategorias() {
 // CARGAR CATÁLOGO
 async function cargarCatalogo() {
     try {
-        const res = await fetch(`${API_URL}/productos?t=${Date.now()}`);
+        const res = await fetch(api(`/productos?t=${Date.now()}`));
         const data = await res.json();
         productosCache = data.data || [];
         
@@ -72,7 +79,7 @@ function actualizarGrid(productos) {
         
         // La miniatura la genera lambda/handler.py y la sirve el backend
         const imagen = prod.miniatura_disponible
-            ? `<img src="${API_URL}${prod.miniatura_url}" alt="${prod.nombre}" loading="lazy">`
+            ? `<img src="${API_BASE}${prod.miniatura_url}" alt="${prod.nombre}" loading="lazy">`
             : '<i class="fas fa-box"></i>';
         
         card.innerHTML = `
@@ -109,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // VER DETALLE
 async function verDetalle(id) {
     try {
-        const res = await fetch(`${API_URL}/productos/${id}`);
+        const res = await fetch(api(`/productos/${id}`));
         const data = await res.json();
         const prod = data.data;
         
@@ -130,6 +137,24 @@ async function verDetalle(id) {
         const estadoColor = prod.estado === 'PUBLICADO' ? '#10b981' : '#f59e0b';
         const estadoIcon = prod.estado === 'PUBLICADO' ? 'check-circle' : 'clock';
         
+        // Un producto queda reintentable cuando la imagen fallo pero el
+        // original sigue guardado en S3, de modo que Lambda pueda rehacer la
+        // miniatura sin volver a subir el archivo.
+        const reintentable = prod.reintentable === true
+            || (prod.estado === 'PENDIENTE' && prod.imagen_original_disponible);
+        const reintentoHTML = reintentable ? `
+            <div style="margin-top: 1.5rem; padding: 1rem; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;">
+                <p style="color: #92400e; font-size: 0.9rem; margin-bottom: 0.75rem;">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    La imagen no se pudo procesar. El producto sigue <strong>PENDIENTE</strong>
+                    y no aparece en el catálogo hasta completarse.
+                </p>
+                <button id="btn-reintentar" class="btn btn-primary">
+                    <i class="fas fa-rotate"></i> Reintentar procesamiento
+                </button>
+            </div>
+        ` : '';
+        
         document.getElementById('detalle-producto').innerHTML = `
             <div class="detalle-header">
                 <h2><i class="fas fa-box-open"></i> ${prod.nombre}</h2>
@@ -139,7 +164,7 @@ async function verDetalle(id) {
                     <div>
                         <div class="producto-imagen" style="height: 300px; margin-bottom: 1rem;">
                             ${prod.miniatura_disponible
-                                ? `<img src="${API_URL}/productos/${id}/imagen" alt="${prod.nombre}" style="width:100%; height:100%; object-fit:contain;">`
+                                ? `<img src="${API_BASE}/productos/${id}/imagen" alt="${prod.nombre}" style="width:100%; height:100%; object-fit:contain;">`
                                 : '<i class="fas fa-box" style="font-size: 4rem;"></i>'}
                         </div>
                     </div>
@@ -164,16 +189,28 @@ async function verDetalle(id) {
                                     ${prod.estado}
                                 </div>
                             </div>
+                            <div class="meta-item">
+                                <div class="meta-label">Procesamiento de imagen</div>
+                                <div class="meta-valor">${prod.estado_imagen || 'NO_REGISTRADA'}</div>
+                            </div>
                         </div>
                         <div style="margin-top: 1rem;">
                             <h3 style="margin-bottom: 0.5rem; color: #1f2937;">Descripción</h3>
                             <p style="color: #6b7280; line-height: 1.6;">${prod.descripcion}</p>
                         </div>
+                        ${reintentoHTML}
                     </div>
                 </div>
                 ${atributosHTML}
             </div>
         `;
+        
+        // El boton de reintento solo aparece cuando el procesamiento fallo
+        // y el producto sigue PENDIENTE, que es el unico caso reintentable.
+        const btnReintentar = document.getElementById('btn-reintentar');
+        if (btnReintentar) {
+            btnReintentar.onclick = () => reintentarImagen(id);
+        }
         
         document.getElementById('vista-detalle').classList.add('activa');
         document.querySelectorAll('.vista').forEach(v => {
@@ -181,6 +218,39 @@ async function verDetalle(id) {
         });
     } catch (e) {
         console.error('Error cargando detalle:', e);
+    }
+}
+
+// REINTENTAR PROCESAMIENTO DE IMAGEN
+async function reintentarImagen(id) {
+    const btn = document.getElementById('btn-reintentar');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reintentando...';
+    }
+    
+    try {
+        const res = await fetch(api(`/productos/${id}/reprocesar`), {method: 'POST'});
+        const data = await res.json();
+        
+        if (data.estado_procesamiento === 'LISTA') {
+            mostrarMensaje(
+                `✅ Producto #${id} republicado. La miniatura se generó correctamente.`,
+                'exito'
+            );
+            mostrarVista('catalogo');
+        } else {
+            // El paso fallido viene en la respuesta de la API.
+            const paso = data.paso_fallido ? ` (paso: ${data.paso_fallido})` : '';
+            const detalle = data.detalle ? `: ${data.detalle}` : '';
+            mostrarMensaje(
+                `⚠️ No se pudo procesar la imagen${paso}${detalle}`,
+                'error'
+            );
+            await verDetalle(id);
+        }
+    } catch (e) {
+        mostrarMensaje('❌ Error al reintentar: ' + e.message, 'error');
     }
 }
 
@@ -200,7 +270,7 @@ document.getElementById('formProducto')?.addEventListener('submit', async (e) =>
     
     try {
         // Crear producto
-        const res1 = await fetch(`${API_URL}/productos`, {
+        const res1 = await fetch(api('/productos'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -223,7 +293,7 @@ document.getElementById('formProducto')?.addEventListener('submit', async (e) =>
             const formData = new FormData();
             formData.append('file', imagen);
             
-            const res2 = await fetch(`${API_URL}/productos/${producto_id}/imagen`, {
+            const res2 = await fetch(api(`/productos/${producto_id}/imagen`), {
                 method: 'POST',
                 body: formData
             });

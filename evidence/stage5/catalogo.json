@@ -1,0 +1,107 @@
+[
+    {
+        "nombre":  "Teclado Mecanico RGB",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC001"
+    },
+    {
+        "nombre":  "Mouse Inalambrico",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC002"
+    },
+    {
+        "nombre":  "Monitor 24 Pulgadas",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC003"
+    },
+    {
+        "nombre":  "Audifonos Bluetooth",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC004"
+    },
+    {
+        "nombre":  "Webcam HD",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC005"
+    },
+    {
+        "nombre":  "Parlante Bluetooth",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC006"
+    },
+    {
+        "nombre":  "Memoria USB 128GB",
+        "categoria":  "Electr├│nica",
+        "codigo":  "TEC007"
+    },
+    {
+        "nombre":  "Lampara LED",
+        "categoria":  "Hogar",
+        "codigo":  "HOG001"
+    },
+    {
+        "nombre":  "Enchufe Inteligente",
+        "categoria":  "Hogar",
+        "codigo":  "HOG002"
+    },
+    {
+        "nombre":  "Camara de Seguridad",
+        "categoria":  "Hogar",
+        "codigo":  "HOG003"
+    },
+    {
+        "nombre":  "Reloj Digital",
+        "categoria":  "Hogar",
+        "codigo":  "HOG004"
+    },
+    {
+        "nombre":  "Aspiradora Robot",
+        "categoria":  "Hogar",
+        "codigo":  "HOG005"
+    },
+    {
+        "nombre":  "Bascula Digital",
+        "categoria":  "Hogar",
+        "codigo":  "HOG006"
+    },
+    {
+        "nombre":  "Cargador Universal",
+        "categoria":  "Hogar",
+        "codigo":  "HOG007"
+    },
+    {
+        "nombre":  "Impresora Multifuncion",
+        "categoria":  "Oficina",
+        "codigo":  "OFI001"
+    },
+    {
+        "nombre":  "Calculadora Cientifica",
+        "categoria":  "Oficina",
+        "codigo":  "OFI002"
+    },
+    {
+        "nombre":  "Proyector HD",
+        "categoria":  "Oficina",
+        "codigo":  "OFI003"
+    },
+    {
+        "nombre":  "Tablet Digitalizadora",
+        "categoria":  "Oficina",
+        "codigo":  "OFI004"
+    },
+    {
+        "nombre":  "Lector de Codigo",
+        "categoria":  "Oficina",
+        "codigo":  "OFI005"
+    },
+    {
+        "nombre":  "Disco Externo 1TB",
+        "categoria":  "Oficina",
+        "codigo":  "OFI006"
+    },
+    {
+        "nombre":  "Producto de prueba",
+        "categoria":  "Accesorios",
+        "codigo":  "TEST-34CB4AC6"
+    }
+]

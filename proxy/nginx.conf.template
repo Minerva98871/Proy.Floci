@@ -1,0 +1,64 @@
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    # La API responde imagenes y JSON; los errores del upstream deben verse
+    # como tales y no como 502 generico de nginx.
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection        "";
+
+    # Lambda puede tardar hasta su timeout (60 s) al generar la miniatura.
+    proxy_connect_timeout 10s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+
+    # Los nombres de los upstreams vienen del entorno, no estan fijados aqui,
+    # para que la MISMA imagen sirva en Docker Compose y en Kubernetes.
+    #   Docker Compose -> backend:5000  y frontend:80
+    #   Kubernetes     -> lomax-backend:5000 y lomax-frontend:80
+    upstream lomax_api {
+        server ${LOMAX_BACKEND};
+    }
+
+    upstream lomax_frontend {
+        server ${LOMAX_FRONTEND};
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        # Salud del proxy, util para comprobar que la entrada de usuarios vive.
+        location = /proxy-health {
+            access_log off;
+            add_header Content-Type application/json;
+            return 200 '{"status":"OK","service":"lomax-proxy"}';
+        }
+
+        # API: todo lo que cuelgue de /api se reenvia al backend Flask.
+        # Se conserva el camino original para que el backend vea /productos.
+        location /api/ {
+            proxy_pass http://lomax_api/;
+            proxy_buffering off;
+        }
+
+        # El frontend consume la API por la misma entrada, asi que las
+        # miniaturas tambien viajan por aqui.
+        location ~ ^/productos/\d+/imagen$ {
+            proxy_pass http://lomax_api;
+        }
+
+        # Frontend: SPA estatico.
+        location / {
+            proxy_pass http://lomax_frontend;
+        }
+    }
+}

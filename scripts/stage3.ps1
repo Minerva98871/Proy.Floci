@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$DbPassword = $env:LOMAX_DB_PASSWORD,
   [string]$Region = "us-east-1",
   [string]$OriginalsBucket = "lomax-originales",
@@ -21,6 +21,37 @@ $env:AWS_ACCESS_KEY_ID = "test"
 $env:AWS_SECRET_ACCESS_KEY = "test"
 $env:AWS_DEFAULT_REGION = $Region
 $env:AWS_PAGER = ""
+
+function Invoke-Native {
+  # Ejecuta un comando nativo devolviendo salida y codigo de retorno sin
+  # lanzar excepcion. En Windows PowerShell 5.1, con $ErrorActionPreference
+  # en "Stop", la salida por stderr de docker se convierte en un error fatal
+  # y aborta el script. $PSNativeCommandUseErrorActionPreference solo existe
+  # en PowerShell 7.3 o superior, asi que esta funcion cubre ambas versiones.
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [string[]]$Arguments = @(),
+    [string]$WorkingDirectory
+  )
+
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  $previousLocation = Get-Location
+  try {
+    if ($WorkingDirectory) { Set-Location -LiteralPath $WorkingDirectory }
+    $output = & $FilePath @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    if ($WorkingDirectory) { Set-Location -LiteralPath $previousLocation }
+    $ErrorActionPreference = $previousPreference
+  }
+
+  return [pscustomobject]@{
+    ExitCode = $exitCode
+    Output   = @($output)
+  }
+}
 
 function Invoke-AwsJson {
   param([string[]]$Arguments)
@@ -189,8 +220,10 @@ try {
   $thumbnailDirectory = Join-Path $stageDirectory "miniaturas"
   New-Item -ItemType Directory -Force -Path $originalDirectory, $thumbnailDirectory | Out-Null
 
-  & docker compose up -d floci
-  if ($LASTEXITCODE -ne 0) { throw "No se pudo iniciar Floci con Docker Compose." }
+  $floci = Invoke-Native -FilePath "docker" -Arguments @("compose", "up", "-d", "floci")
+  if ($floci.ExitCode -ne 0) {
+    throw "No se pudo iniciar Floci con Docker Compose: $($floci.Output -join "`n")"
+  }
 
   $emulatorReady = $false
   for ($attempt = 0; $attempt -lt 60; $attempt++) {
@@ -215,15 +248,11 @@ try {
   }
 
   foreach ($bucket in @($OriginalsBucket, $ThumbnailsBucket)) {
-    $previousPreference = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-      & aws s3api head-bucket --bucket $bucket --endpoint-url $endpoint --region $Region 2>&1 | Out-Null
-      $bucketExists = $LASTEXITCODE -eq 0
-    }
-    finally {
-      $ErrorActionPreference = $previousPreference
-    }
+    $probe = Invoke-Native -FilePath "aws" -Arguments @(
+      "s3api", "head-bucket", "--bucket", $bucket,
+      "--endpoint-url", $endpoint, "--region", $Region
+    )
+    $bucketExists = $probe.ExitCode -eq 0
     if (-not $bucketExists) {
       Invoke-AwsCommand -Arguments @("s3", "mb", "s3://$bucket") | Out-Null
     }
@@ -257,12 +286,29 @@ SELECT producto_id, codigo FROM Productos WHERE codigo IN ('P4-LAMBDA-JPG', 'P4-
 
   $originalJpeg = Join-Path $originalDirectory "lomax-1200x800.jpg"
   $originalPng = Join-Path $originalDirectory "lomax-1200x800.png"
-  & docker build --file scripts/Dockerfile.image-tools --tag lomax-image-tools .
-  if ($LASTEXITCODE -ne 0) { throw "No se pudo construir la imagen Docker de herramientas de imagen." }
-  & docker run --rm --mount "type=bind,source=$stageDirectory,target=/evidence" lomax-image-tools python /tools/create_test_image.py /evidence/originales/lomax-1200x800.jpg
-  if ($LASTEXITCODE -ne 0) { throw "No se pudo crear el JPEG de prueba." }
-  & docker run --rm --mount "type=bind,source=$stageDirectory,target=/evidence" lomax-image-tools python /tools/create_test_image.py /evidence/originales/lomax-1200x800.png
-  if ($LASTEXITCODE -ne 0) { throw "No se pudo crear el PNG de prueba." }
+  function Invoke-ImageTools {
+    param([string[]]$Arguments, [string]$FailureMessage)
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      $output = & docker @Arguments 2>&1
+      $exitCode = $LASTEXITCODE
+    }
+    finally {
+      $ErrorActionPreference = $previousPreference
+    }
+    if ($output) { $output | ForEach-Object { Write-Host $_ } }
+    if ($exitCode -ne 0) { throw "$FailureMessage`n$($output -join "`n")" }
+  }
+
+  $mount = "type=bind,source=$stageDirectory,target=/evidence"
+  Invoke-ImageTools -Arguments @("build", "--file", "scripts/Dockerfile.image-tools", "--tag", "lomax-image-tools", ".") `
+    -FailureMessage "No se pudo construir la imagen Docker de herramientas de imagen."
+  Invoke-ImageTools -Arguments @("run", "--rm", "--mount", $mount, "lomax-image-tools", "python", "/tools/create_test_image.py", "/evidence/originales/lomax-1200x800.jpg") `
+    -FailureMessage "No se pudo crear el JPEG de prueba."
+  Invoke-ImageTools -Arguments @("run", "--rm", "--mount", $mount, "lomax-image-tools", "python", "/tools/create_test_image.py", "/evidence/originales/lomax-1200x800.png") `
+    -FailureMessage "No se pudo crear el PNG de prueba."
 
   $invalidPath = Join-Path $originalDirectory "archivo-invalido.jpg"
   [System.IO.File]::WriteAllText($invalidPath, "Esto no es una imagen JPEG ni PNG.", [System.Text.UTF8Encoding]::new($false))
@@ -294,8 +340,9 @@ SELECT producto_id, codigo FROM Productos WHERE codigo IN ('P4-LAMBDA-JPG', 'P4-
     }
   }
   $packagePath = Join-Path $stageDirectory "lomax-thumbnail.zip"
-  & docker run --rm --mount "type=bind,source=$stageDirectory,target=/evidence" lomax-image-tools python /tools/package_lambda.py /evidence
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path $packagePath)) { throw "No se pudo empaquetar la funcion Lambda." }
+  Invoke-ImageTools -Arguments @("run", "--rm", "--mount", $mount, "lomax-image-tools", "python", "/tools/package_lambda.py", "/evidence") `
+    -FailureMessage "No se pudo empaquetar la funcion Lambda."
+  if (-not (Test-Path $packagePath)) { throw "No se genero el paquete $packagePath." }
 
   $functionNames = @((Invoke-AwsJson -Arguments @("lambda", "list-functions")).Functions | ForEach-Object { $_.FunctionName })
   if ($functionNames -contains $FunctionName) {

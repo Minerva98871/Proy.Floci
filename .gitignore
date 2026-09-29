@@ -1,12 +1,36 @@
 .floci/
 *.log
 
+# Variables locales discovered en tiempo de ejecucion (p. ej. el nombre del
+# contenedor RDS que genera Floci). setup.ps1 lo escribe; cada equipo tiene
+# uno distinto, asi que no se versiona. Copia .env.ejemplo como base.
+.env
+
+
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 
-# Artefactos de las pruebas de integracion
+# Artefactos sueltos de las pruebas de integracion (la evidencia si se versiona).
+# La suite y los scripts de la Etapa 3 los dejan en la raiz al depurar; la
+# copia buena de cada archivo esta en evidence/.
 miniatura_descargada_*.jpg
-evidence/
+original_*.jpg
+response.json
+
+# La evidencia SI se versiona: es el entregable P9. Se excluyen solo estos dos
+# archivos, que son entradas regenerables y no hallazgos.
+#
+#   lomax-thumbnail.zip       lo arma scripts/package_lambda.py al ejecutar
+#                             stage3.ps1; 6,9 MB de codigo de librerias
+#   imagen-mayor-a-5MiB.jpg   lo escribe stage3.ps1 como maxImageBytes+1 bytes
+#                             de relleno, solo para probar que el limite de
+#                             5 MiB se rechaza; 5,1 MB
+#
+# Los resultados que SI dependian de ellos (el rechazo con el paso fallido, el
+# estado PENDIENTE en RDS y la respuesta de Lambda) estan en los .json y .md de
+# evidence/stage3, y esos si se versionan.
+evidence/stage3/lomax-thumbnail.zip
+evidence/stage3/originales/imagen-mayor-a-5MiB.jpg

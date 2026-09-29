@@ -1,15 +1,52 @@
-# Lomax SA: Etapa 2 con Floci y Docker
+# Lomax SA
 
-Entorno local para persistir el catalogo en RDS MySQL emulado por Floci y los atributos variables en DynamoDB. Floci se conecta al daemon Docker para iniciar un contenedor MySQL real para RDS; DynamoDB se atiende en el endpoint local de Floci.
+Catálogo de productos sobre servicios emulados de AWS con [Floci](https://floci.io). La aplicación es una API Flask que publica productos en RDS MySQL, guarda sus atributos variables en DynamoDB, sube las fotografías a S3, genera miniaturas con Lambda y las sirve detrás de un reverse proxy que es la única entrada de usuarios. Las imágenes se publican en un registro OCI (ECR) y la aplicación final se despliega en Kubernetes (EKS) con escalamiento y autorrecuperación.
+
+## Documentos de la entrega
+
+| Entregable | Documento |
+| --- | --- |
+| P1 — Síntesis conceptual | [`docs/p1-sintesis-conceptual.md`](docs/p1-sintesis-conceptual.md) |
+| P2 — Arquitectura y diagrama | [`docs/p2-arquitectura.md`](docs/p2-arquitectura.md) |
+| P7 — Publicación en ECR | [`docs/p7-ecr.md`](docs/p7-ecr.md) |
+| Estado de avance y bugs corregidos | [`PROGRESO.md`](PROGRESO.md) |
+| Manifiestos de Kubernetes | [`k8s/`](k8s/) |
 
 ## Requisitos
 
 - Docker Desktop iniciado en modo de contenedores Linux.
-- AWS CLI v2 instalado en Windows.
-- Puertos `4567` y `7001-7099` disponibles. Se usa `4567` para no interferir con otras instalaciones locales de Floci en `4566`.
-- Acceso a internet la primera vez para descargar las imagenes `floci/floci:2.1.0-compat` y `mysql:8.0`.
+- AWS CLI v2 en Windows (lo usan los scripts de cada etapa).
+- `kubectl` para la Etapa 7. Docker Desktop ya lo incluye; si no, `kubectl version --client` lo confirma.
+- Puertos `4567`, `7001-7099` y `8080` libres en el host. Se usa `4567` para no interferir con otras instalaciones locales de Floci en `4566`, y `8080` para el proxy porque el `80` está reservado en esta máquina. Ambos son configurables (`LOMAX_PROXY_PORT` en `.env`).
+- Acceso a internet la primera vez para descargar las imágenes `floci/floci`, `mysql:8.0`, `python:3.12-slim` y `nginx:1.27-alpine`.
 
-## Iniciar y probar
+## Ejecución completa
+
+Los scripts se ejecutan en orden. Cada uno es idempotente: se pueden volver a lanzar sin partir de cero.
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+$env:LOMAX_DB_PASSWORD = "LomaxLocal2026!"
+
+.\scripts\setup.ps1        # Etapa 2  RDS + DynamoDB, 20 productos
+.\scripts\stage3.ps1       # Etapa 3  S3 + Lambda, miniaturas
+docker compose up -d --build   # Etapas 4-6  API, frontend y proxy
+.\scripts\stage5_catalogo.ps1   # Etapa 5  una foto por producto vía la API
+python backend\test_endpoints.py   # Etapa 4  suite TEST 1-8 contra el proxy
+.\scripts\stage6_ecr.ps1   # Etapa 6  publica backend, frontend y proxy en ECR
+.\scripts\stage7_eks.ps1   # Etapa 7  despliegue en EKS, escalamiento y autorrecuperación
+```
+
+Con la pila levantada, la aplicación se usa en **<http://localhost:8080>**. Ese es el único puerto publicado: ni el backend ni el frontend lo están, a propósito.
+
+```powershell
+curl http://localhost:8080/proxy-health   # {"status":"OK","service":"lomax-proxy"}
+curl http://localhost:8080/api/health     # {"service":"lomax-backend","status":"OK"}
+```
+
+## Etapa 2: RDS y DynamoDB
+
+Floci se conecta al daemon Docker para iniciar un contenedor MySQL real para RDS; DynamoDB se atiende en el endpoint local de Floci.
 
 Desde PowerShell en la carpeta del proyecto:
 
@@ -64,6 +101,8 @@ docker compose ps
 docker compose logs -f floci
 aws dynamodb list-tables --endpoint-url http://localhost:4567 --region us-east-1
 aws rds describe-db-instances --endpoint-url http://localhost:4567 --region us-east-1
+python scripts\verify_contracts.py     # que backend y Lambda no se desincronicen
+python scripts\fix_powershell_encoding.py   # BOM UTF-8 en los .ps1
 ```
 
 Para detener Floci sin borrar el volumen persistente: `docker compose down`. Para continuar, vuelve a ejecutar `docker compose up -d floci` o el script de configuración. Eliminar volúmenes de Docker borra los datos locales.
@@ -134,22 +173,59 @@ Parsea el AST de `lambda/handler.py` y de los módulos del backend y compara el 
 
 ### Pruebas de integración
 
-Con la pila levantada:
+La suite recorre el flujo completo y **pega al reverse proxy**, no al backend directamente, que es como un usuario real llega a la aplicación. Cubre los ocho casos `TEST 1`–`TEST 8` y escribe un informe en `evidence/stage4/reporte-e4.md`.
 
 ```powershell
-docker compose up -d backend frontend
+docker compose up -d --build
 python backend\test_endpoints.py
 ```
 
-Recorre el flujo completo: crea un producto, sube la imagen, verifica que la Lambda devuelve `LISTA`, que el producto queda `PUBLICADO`, que la miniatura se descarga y que el reproceso es idempotente. Sale con código 1 si alguna comprobación falla.
+Crea un producto, sube la imagen, verifica que la Lambda devuelve `LISTA`, que el producto queda `PUBLICADO`, que la miniatura se descarga y que el reproceso es idempotente. Comprueba además los códigos `400`, `409`, `413`, `415`, `502` y `503`, y que **cada error identifica el paso fallido** (`paso_fallido`). Sale con código 1 si alguna comprobación falla.
 
-## Etapa 5: Frontend
+Para apuntar a otra dirección: `set LOMAX_TEST_BASE_URL=http://otro-host:8080/api`.
 
-`frontend/` es un dashboard estático servido por nginx en el puerto `80`. Habla con la API en `http://localhost:5000` mediante CORS. Muestra únicamente productos `PUBLICADO` y usa la miniatura que generó la Lambda en la tarjeta y en la ficha de detalle.
+## Etapa 5: Frontend y reverse proxy
+
+`frontend/` es un dashboard estático servido por nginx. Habla con la API por la misma entrada de usuario, así que no necesita CORS ni conocer la dirección del backend.
+
+`proxy/` es el reverse proxy y es **la única vía de entrada**: el servicio `frontend` no publica ningún puerto y el `backend` solo es alcanzable desde la red de Compose. Todo pasa por nginx, que enruta `/api/` al backend y el resto al frontend.
 
 ```powershell
-docker compose up -d backend frontend
+docker compose up -d --build
 ```
+
+Abrir <http://localhost:8080>. El formulario muestra el estado de cada petición y, si el proxy o la API devuelven un error, muestra **qué paso falló** (`paso_fallido`) y ofrece un botón de reintento.
+
+La configuración de nginx es una plantilla (`proxy/nginx.conf.template`) que el entrypoint de la imagen completa con `LOMAX_BACKEND` y `LOMAX_FRONTEND`. El filtro de `envsubst` solo sustituye esas dos variables, de modo que las propias de nginx (`$host`, `$scheme`...) no se vacían. Gracias a eso **la misma imagen** sirve en Docker Compose y en Kubernetes: solo cambian los nombres de los Services.
+
+## Etapa 6: publicación en ECR
+
+```powershell
+.\scripts\stage6_ecr.ps1
+```
+
+Construye y publica tres imágenes —`lomax-backend`, `lomax-frontend` y `lomax-proxy`— en el registro OCI de Floci, etiquetadas con el hash del commit. El script usa el `repositoryUri` que devuelve la API en vez de construir el nombre a mano, muestra el digest de cada `docker push`, lista las imágenes con `ecr describe-images` y comprueba que una imagen descargada desde cero arranca y responde.
+
+La etiqueta se usa después como `__IMAGE_TAG__` en los manifiestos de la Etapa 7, para que el clúster ejecute exactamente lo publicado y no reconstruya nada. Detalle en [`docs/p7-ecr.md`](docs/p7-ecr.md) y en [`evidence/stage6/ecr-publish.md`](evidence/stage6/ecr-publish.md).
+
+> Con `FLOCI_SERVICES_ECR_URI_STYLE: "path"` el daemon de Docker en Windows no resuelve `*.localhost`, así que las imágenes se referencian como `localhost:4566/000000000000/us-east-1/<repositorio>:<etiqueta>`.
+
+## Etapa 7: despliegue en EKS
+
+```powershell
+.\scripts\stage7_eks.ps1
+```
+
+Crea el cluster, aplica los manifiestos de [`k8s/`](k8s/) y demuestra las dos cosas que aporta un orquestador: **escalamiento horizontal** (1 → 3 réplicas del backend) y **autorrecuperación** (se borra un Pod a propósito y el Deployment crea otro con un UID que no existía antes).
+
+Detalles que hacen que funcione en local y que conviene conocer:
+
+- El webhook de autenticación de EKS **rechaza las claves `test/test`** a propósito, porque conceden cluster-admin. El script crea un usuario IAM (`lomax-dev`) con su access key y usa esas credenciales. Como IAM solo entrega el secret al crear la clave, la primera vez se guarda en `%TEMP%\lomax-eks-access-key.json` y las siguientes se recuperan de ahí.
+- Floci levanta un contenedor k3s por cluster cuyo API server se enlaza en el host dentro del rango 6500-6599. **No hay que publicar ese rango** en `docker-compose.yml`: hacerlo lo ocupa entero y Floci responde `No free port available in range 6500-6599`.
+- Desde un Pod, `host.docker.internal` no resuelve (el DNS del clúster no lo conoce), pero las IP de la red compartida de Docker sí. El script descubre en cada ejecución la IP de Floci y la del contenedor RDS y las inyecta en el ConfigMap. Docker las reasigna al reiniciar, por eso se descubren en vez de fijarse.
+- El proxy se declara como `NodePort` para dejar el diseño completo, pero Floci solo publica el API server, así que el script usa `kubectl port-forward` para verificarlo. En AWS real lo haría un Service `LoadBalancer` con un ALB.
+
+Evidencia completa en [`evidence/stage7/eks-despliegue.md`](evidence/stage7/eks-despliegue.md).
 
 ## Configuración
 
@@ -165,3 +241,17 @@ docker compose up -d backend frontend
 | Prefijo de originales | `originales/<producto_id>/<archivo>` |
 
 La clave de la miniatura es determinista: `miniaturas/<producto_id>/<sha256(bucket/clave_original)>.jpg`, por lo que reprocesar la misma imagen reemplaza el mismo objeto en lugar de acumular duplicados.
+
+## Evidencia (P9)
+
+Cada script deja en `evidence/` lo que comprobó, para que los resultados se puedan revisar sin volver a ejecutarlo.
+
+| Ruta | Qué contiene |
+| --- | --- |
+| `evidence/stage3/` | Respuestas de invocación de Lambda, `get-item` de DynamoDB, listados de S3, dimensiones verificadas y los originales y miniaturas descargados |
+| `evidence/stage4/` | Informe de la suite `TEST 1`–`TEST 8` con los códigos de cada caso |
+| `evidence/stage5/` | Catálogo resultante y las fotografías de producto |
+| `evidence/stage6/` | Digests de publicación, imágenes registradas y verificación de arranque |
+| `evidence/stage7/` | Cluster, Pods, escalamiento y autorrecuperación con los UIDs antes y después |
+
+Se versionan las respuestas, los informes y los archivos de imagen. Quedan fuera solo dos artefactos regenerables, para no subir 12 MB al repositorio: el paquete de Lambda (`lomax-thumbnail.zip`, que reconstruye `scripts/package_lambda.py`) y el JPEG de relleno de 5 MiB que sirve para probar el límite de tamaño. Los resultados que dependían de ellos sí están guardados.

@@ -1,0 +1,24 @@
+{
+    "Item":  {
+                 "codigo":  {
+                                "S":  "P4-LAMBDA-INVALID"
+                            },
+                 "producto_id":  {
+                                     "N":  "26"
+                                 },
+                 "imagen_estado":  {
+                                       "S":  "ERROR"
+                                   },
+                 "atributos":  {
+                                   "M":  {
+
+                                         }
+                               },
+                 "imagen_original_key":  {
+                                             "S":  "originales/26/archivo-invalido.jpg"
+                                         },
+                 "imagen_error":  {
+                                      "S":  "cannot identify image file \u003c_io.BytesIO object at 0x70e52265e610\u003e"
+                                  }
+             }
+}

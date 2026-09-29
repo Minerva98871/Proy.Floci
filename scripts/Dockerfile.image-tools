@@ -6,4 +6,5 @@ COPY lambda/handler.py /opt/task/handler.py
 COPY scripts/create_test_image.py /tools/create_test_image.py
 COPY scripts/inspect_images.py /tools/inspect_images.py
 COPY scripts/package_lambda.py /tools/package_lambda.py
+COPY scripts/generate_product_images.py /tools/generate_product_images.py
 ENV PYTHONPATH=/opt/task

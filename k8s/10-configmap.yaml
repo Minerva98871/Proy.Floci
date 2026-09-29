@@ -1,0 +1,38 @@
+# ConfigMap con la configuracion compartida por los Pods de la aplicacion.
+#
+# Los endpoints NO son nombres de servicio de Kubernetes: RDS, DynamoDB, S3 y
+# Lambda son servicios gestionados que viven fuera del clúster, igual que en
+# AWS real. Solo cambian de direccion para que el clúster emulado los alcance.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lomax-config
+  namespace: lomax
+  labels:
+    app.kubernetes.io/part-of: lomax-sa
+data:
+  # --- RDS (MySQL) ---
+  RDS_HOST: "__RDS_HOST__"
+  RDS_PORT: "__RDS_PORT__"
+  RDS_USER: "lomax"
+  RDS_DATABASE: "lomax_catalogo"
+
+  # --- Servicios AWS emulados por FLOCI, alcanzados por la red de Docker ---
+  AWS_REGION: "us-east-1"
+  S3_ENDPOINT: "__AWS_ENDPOINT__"
+  DYNAMODB_ENDPOINT: "__AWS_ENDPOINT__"
+  LAMBDA_ENDPOINT: "__AWS_ENDPOINT__"
+
+  S3_BUCKET_ORIGINALES: "lomax-originales"
+  S3_BUCKET_MINIATURAS: "lomax-miniaturas"
+  S3_ORIGINALES_PREFIX: "originales"
+  DYNAMODB_TABLE: "LomaxAtributos"
+  LAMBDA_FUNCTION: "lomax-thumbnail"
+  LAMBDA_TIMEOUT: "60"
+
+  # Credenciales de demostracion del emulador. En AWS real vendrian de un
+  # Secret gestionado por IAM (IRSA o IRSA/Pod Identity).
+  AWS_ACCESS_KEY_ID: "test"
+  AWS_SECRET_ACCESS_KEY: "test"
+
+  MAX_IMAGE_SIZE: "5242880"

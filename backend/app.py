@@ -31,10 +31,36 @@ CONTENT_TYPES = {
     'png': 'image/png',
 }
 
+# Pasos del flujo de alta de un producto. Se devuelven en el campo
+# paso_fallido de cada error para poder localizar donde se rompio la cadena.
+PASO_VALIDACION = 'validacion'
+PASO_RDS = 'rds'
+PASO_DYNAMODB = 'dynamodb'
+PASO_S3_ORIGINAL = 's3_original'
+PASO_S3_MINIATURA = 's3_miniatura'
+PASO_LAMBDA = 'lambda'
+PASO_LECTURA = 'lectura'
+
 
 # ============================================================================
 # HELPERS
 # ============================================================================
+def _error(mensaje, status, paso, detalle=None, extra=None):
+    """
+    Sobre de error uniforme.
+
+    paso_fallido identifica la etapa del flujo que fallo, de modo que un 502
+    de la API se pueda atribuir a RDS, DynamoDB, S3 o Lambda sin tener que
+    leer los logs.
+    """
+    cuerpo = {'error': mensaje, 'paso_fallido': paso}
+    if detalle:
+        cuerpo['detalle'] = detalle
+    if extra:
+        cuerpo.update(extra)
+    return jsonify(cuerpo), status
+
+
 def _procesar_imagen(producto_id, imagen_original_key):
     """
     Invoca Lambda de forma síncrona y sincroniza DynamoDB y RDS con el resultado.
@@ -45,7 +71,10 @@ def _procesar_imagen(producto_id, imagen_original_key):
     respuesta = LambdaService.invocar_procesar_imagen(producto_id, imagen_original_key)
 
     if not isinstance(respuesta, dict):
-        respuesta = {'estado': ESTADO_ERROR, 'error': 'Respuesta de Lambda con formato inesperado'}
+        respuesta = {
+            'estado': ESTADO_ERROR,
+            'error': 'Respuesta de Lambda con formato inesperado',
+        }
 
     estado_final = respuesta.get('estado', ESTADO_ERROR)
     detalle_error = respuesta.get('error')
@@ -91,6 +120,11 @@ def _enriquecer(producto, incluir_descripcion=False):
     producto['miniatura_url'] = (
         f"/productos/{producto['producto_id']}/imagen" if miniatura_key else None
     )
+    # Indica si hay original guardado, que es lo que permite reintentar el
+    # procesamiento sin volver a subir la imagen.
+    producto['imagen_original_disponible'] = bool(atributos.get('imagen_original_key'))
+    if atributos.get('imagen_error'):
+        producto['imagen_error'] = atributos['imagen_error']
 
     if not incluir_descripcion:
         producto.pop('descripcion', None)
@@ -98,6 +132,39 @@ def _enriquecer(producto, incluir_descripcion=False):
         producto.pop('fecha_creacion', None)
 
     return producto
+
+
+def _validar_imagen(archivo):
+    """
+    Valida tamano y extension de la imagen subida.
+
+    Devuelve (ok, status, mensaje, paso, detalle, bytes, extension).
+    La Lambda vuelve a validar el contenido real, asi que la extension es
+    un filtro previo barato, no la garantia final.
+    """
+    if 'file' not in request.files:
+        return False, 400, 'No se envió archivo', PASO_VALIDACION, None, None, None
+
+    if archivo.filename == '':
+        return False, 400, 'Archivo vacío', PASO_VALIDACION, None, None, None
+
+    archivo.seek(0, os.SEEK_END)
+    tamano = archivo.tell()
+    archivo.seek(0)
+
+    if tamano == 0:
+        return False, 400, 'Archivo vacío', PASO_VALIDACION, None, None, None
+
+    if tamano > Config.MAX_IMAGE_SIZE:
+        return (False, 413, 'Archivo muy grande', PASO_VALIDACION,
+                f'Máximo {Config.MAX_IMAGE_SIZE / 1024 / 1024:.0f} MiB', None, None)
+
+    extension = archivo.filename.rsplit('.', 1)[-1].lower() if '.' in archivo.filename else ''
+    if extension not in Config.ALLOWED_IMAGE_FORMATS:
+        return (False, 415, 'Formato no permitido', PASO_VALIDACION,
+                f'Permitidos: {", ".join(sorted(Config.ALLOWED_IMAGE_FORMATS))}', None, None)
+
+    return True, 200, None, None, None, archivo.read(), extension
 
 
 # ============================================================================
@@ -115,10 +182,14 @@ def get_categorias():
                 'data': categorias,
                 'count': len(categorias)
             }), 200
-        return jsonify(categorias), status_code
+        return jsonify({
+            'error': categorias.get('error', 'Fallo al consultar categorías'),
+            'paso_fallido': PASO_RDS,
+            'detalle': categorias.get('details')
+        }), status_code
     except Exception as e:
         logger.error(f"Error en GET /categorias: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 502
+        return _error('Error interno del servidor', 502, PASO_RDS, str(e))
 
 
 # ============================================================================
@@ -135,34 +206,26 @@ def crear_producto():
     try:
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
-            return jsonify({
-                'error': 'Datos inválidos',
-                'detalle': 'El cuerpo debe ser un objeto JSON'
-            }), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION,
+                          'El cuerpo debe ser un objeto JSON')
 
         # Validar datos requeridos
         campos_requeridos = ['codigo', 'nombre', 'descripcion', 'precio', 'categoria_id', 'atributos']
         faltantes = [campo for campo in campos_requeridos if campo not in data]
         if faltantes:
-            return jsonify({
-                'error': 'Datos inválidos',
-                'detalle': 'Faltan campos requeridos: ' + ', '.join(faltantes)
-            }), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION,
+                          'Faltan campos requeridos: ' + ', '.join(faltantes))
 
         if not isinstance(data['atributos'], dict):
-            return jsonify({
-                'error': 'Datos inválidos',
-                'detalle': 'El campo atributos debe ser un objeto'
-            }), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION,
+                          'El campo atributos debe ser un objeto')
 
         codigo = data['codigo']
         nombre = data['nombre']
         descripcion = data['descripcion']
         if not all(isinstance(v, str) for v in (codigo, nombre, descripcion)):
-            return jsonify({
-                'error': 'Datos inválidos',
-                'detalle': 'codigo, nombre y descripcion deben ser texto'
-            }), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION,
+                          'codigo, nombre y descripcion deben ser texto')
 
         codigo = codigo.strip()
         nombre = nombre.strip()
@@ -172,62 +235,60 @@ def crear_producto():
             precio = float(data['precio'])
             categoria_id = int(data['categoria_id'])
         except (TypeError, ValueError):
-            return jsonify({
-                'error': 'Datos inválidos',
-                'detalle': 'precio y categoria_id deben ser numéricos'
-            }), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION,
+                          'precio y categoria_id deben ser numéricos')
 
         if not codigo or not nombre or not descripcion:
-            return jsonify({'error': 'Datos inválidos', 'detalle': 'Campos vacíos'}), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION, 'Campos vacíos')
 
         if precio < 0:
-            return jsonify({'error': 'Datos inválidos', 'detalle': 'Precio no puede ser negativo'}), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION,
+                          'Precio no puede ser negativo')
 
         if categoria_id <= 0:
-            return jsonify({'error': 'Datos inválidos', 'detalle': 'Categoría no válida'}), 400
+            return _error('Datos inválidos', 400, PASO_VALIDACION, 'Categoría no válida')
 
-        # Crear producto en RDS
+        # Paso RDS
         producto_id, error = RDSDatabase.crear_producto(codigo, nombre, descripcion, precio, categoria_id)
 
         if error:
             if error == "Código duplicado":
-                return jsonify({'error': error}), 409
-            elif error == "Categoría no existe":
-                return jsonify({'error': error}), 400
-            elif error == "Datos inválidos":
-                return jsonify({'error': error}), 400
-            return jsonify({'error': error}), 502
+                return _error(error, 409, PASO_RDS, 'El índice UNIQUE de codigo ya tiene ese valor')
+            if error == "Categoría no existe":
+                return _error(error, 400, PASO_RDS, 'La FK categoria_id no tiene coincidencia')
+            if error == "Datos inválidos":
+                return _error(error, 400, PASO_RDS)
+            return _error('Fallo al crear el producto en RDS', 502, PASO_RDS, error)
 
-        # Guardar atributos en DynamoDB
+        # Paso DynamoDB
         if not DynamoDBService.guardar_atributos(producto_id, codigo, data['atributos']):
             # Sin item en DynamoDB el producto quedaria huerfano: se revierte.
             logger.error(f"Fallo al guardar atributos para producto {producto_id}, revirtiendo RDS")
             RDSDatabase.eliminar_producto(producto_id)
-            return jsonify({
-                'error': 'Fallo al guardar atributos',
-                'detalle': 'No se pudieron guardar los atributos en DynamoDB'
-            }), 502
+            return _error('Fallo al guardar atributos', 502, PASO_DYNAMODB,
+                          'No se pudieron guardar los atributos en DynamoDB; '
+                          'se revirtio la fila de RDS')
 
-        # Respuesta exitosa
         return jsonify({
             'success': True,
             'producto_id': producto_id,
             'codigo': codigo,
             'nombre': nombre,
             'estado': 'PENDIENTE',
+            'siguiente_paso': 'POST /productos/{id}/imagen para completar y publicar',
             'mensaje': 'Producto creado. Carga la imagen para publicarlo.'
         }), 201
 
     except Exception as e:
         logger.error(f"Error en POST /productos: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 502
+        return _error('Error interno del servidor', 502, PASO_VALIDACION, str(e))
 
 
 # ============================================================================
 # ENDPOINT 3: POST /productos/{id}/imagen
 # Recibe: imagen JPEG o PNG
 # Retorna: 200 con PUBLICADO si todo OK
-#          413 si mayor a 5 MB
+#          413 si mayor a 5 MiB
 #          415 si formato no permitido
 #          404 si producto no existe
 #          502/503 si falla un servicio
@@ -236,65 +297,34 @@ def crear_producto():
 def subir_imagen(producto_id):
     """POST /productos/{id}/imagen - Sube imagen y procesa con Lambda"""
     try:
-        # Validar que el producto existe
         producto = RDSDatabase.obtener_producto(producto_id)
         if not producto:
-            return jsonify({'error': 'Producto no encontrado'}), 404
+            return _error('Producto no encontrado', 404, PASO_RDS)
 
-        # Validar que existe en DynamoDB
         if not DynamoDBService.existe_item(producto_id):
-            return jsonify({'error': 'Producto no completamente registrado'}), 404
+            return _error('Producto no completamente registrado', 404, PASO_DYNAMODB,
+                          'No existe el item de atributos para este producto_id')
 
-        # Validar archivo
-        if 'file' not in request.files:
-            return jsonify({'error': 'No se envió archivo'}), 400
+        ok, status, mensaje, paso, detalle, imagen_bytes, extension = _validar_imagen(
+            request.files['file']
+        )
+        if not ok:
+            return _error(mensaje, status, paso, detalle)
 
-        archivo = request.files['file']
-
-        if archivo.filename == '':
-            return jsonify({'error': 'Archivo vacío'}), 400
-
-        # Validar tamaño
-        archivo.seek(0, os.SEEK_END)
-        tamaño = archivo.tell()
-        archivo.seek(0)
-
-        if tamaño == 0:
-            return jsonify({'error': 'Archivo vacío'}), 400
-
-        if tamaño > Config.MAX_IMAGE_SIZE:
-            return jsonify({
-                'error': 'Archivo muy grande',
-                'detalle': f'Máximo {Config.MAX_IMAGE_SIZE / 1024 / 1024:.0f} MiB'
-            }), 413
-
-        # Validar formato por extension. La Lambda vuelve a validar el
-        # contenido real de la imagen, asi que esto es solo un filtro previo.
-        extension = archivo.filename.rsplit('.', 1)[-1].lower() if '.' in archivo.filename else ''
-        if extension not in Config.ALLOWED_IMAGE_FORMATS:
-            return jsonify({
-                'error': 'Formato no permitido',
-                'detalle': f'Permitidos: {", ".join(sorted(Config.ALLOWED_IMAGE_FORMATS))}'
-            }), 415
-
-        # Leer contenido
-        imagen_bytes = archivo.read()
-
-        # Guardar original en S3
+        # Paso S3: guardar el original
         imagen_key = S3Service.guardar_original(
-            producto_id, imagen_bytes, archivo.filename, CONTENT_TYPES[extension]
+            producto_id, imagen_bytes, request.files['file'].filename,
+            CONTENT_TYPES[extension]
         )
-
         if not imagen_key:
-            return jsonify({'error': 'Error guardando imagen en S3'}), 503
+            return _error('Error guardando imagen en S3', 503, PASO_S3_ORIGINAL,
+                          'No se pudo escribir en el bucket de originales')
 
-        # Marcar PROCESANDO. La Lambda confirmara LISTA o ERROR.
         DynamoDBService.actualizar_estado_imagen(
-            producto_id,
-            ESTADO_PROCESANDO,
-            imagen_original_key=imagen_key
+            producto_id, ESTADO_PROCESANDO, imagen_original_key=imagen_key
         )
 
+        # Paso Lambda
         estado_final, detalle_error = _procesar_imagen(producto_id, imagen_key)
 
         if estado_final == ESTADO_LISTA:
@@ -307,20 +337,20 @@ def subir_imagen(producto_id):
                 'mensaje': 'Producto publicado exitosamente'
             }), 200
 
-        return jsonify({
+        # El producto sigue PENDIENTE para poder reintentar.
+        return _error('La imagen no se pudo procesar', 200, PASO_LAMBDA, detalle_error, extra={
             'success': False,
             'producto_id': producto_id,
             'estado': 'PENDIENTE',
             'imagen_original': imagen_key,
             'estado_procesamiento': estado_final,
-            'detalle': detalle_error,
-            'mensaje': 'La imagen no se pudo procesar. Reintenta con POST '
-                       f'/productos/{producto_id}/reprocesar'
-        }), 200
+            'reintentable': True,
+            'siguiente_paso': f'POST /productos/{producto_id}/reprocesar'
+        })
 
     except Exception as e:
         logger.error(f"Error en POST /productos/<id>/imagen: {e}")
-        return jsonify({'error': 'Error interno del servidor', 'detalle': str(e)}), 502
+        return _error('Error interno del servidor', 502, PASO_S3_ORIGINAL, str(e))
 
 
 # ============================================================================
@@ -334,42 +364,44 @@ def subir_imagen(producto_id):
 def reprocesar_imagen(producto_id):
     """POST /productos/{id}/reprocesar - Reintenta procesar imagen guardada"""
     try:
-        # Validar producto
         producto = RDSDatabase.obtener_producto(producto_id)
         if not producto:
-            return jsonify({'error': 'Producto no encontrado'}), 404
+            return _error('Producto no encontrado', 404, PASO_RDS)
 
-        # Obtener atributos
         atributos = DynamoDBService.obtener_atributos(producto_id)
         if not atributos:
-            return jsonify({'error': 'Producto no registrado correctamente'}), 404
+            return _error('Producto no registrado correctamente', 404, PASO_DYNAMODB)
 
-        # Validar que existe original
         imagen_original_key = atributos.get('imagen_original_key')
         if not imagen_original_key:
-            return jsonify({
-                'error': 'No existe imagen original',
-                'detalle': 'Debe subir una imagen antes de reprocesar'
-            }), 409
+            return _error('No existe imagen original', 409, PASO_S3_ORIGINAL,
+                          'Debe subir una imagen antes de reprocesar')
 
-        # Marcar PROCESANDO antes de invocar
         DynamoDBService.actualizar_estado_imagen(producto_id, ESTADO_PROCESANDO)
 
         estado_final, detalle_error = _procesar_imagen(producto_id, imagen_original_key)
 
-        return jsonify({
-            'success': estado_final == ESTADO_LISTA,
+        if estado_final == ESTADO_LISTA:
+            return jsonify({
+                'success': True,
+                'producto_id': producto_id,
+                'estado_rds': 'PUBLICADO',
+                'estado_procesamiento': estado_final,
+                'detalle': None,
+                'mensaje': 'Imagen reprocesada'
+            }), 200
+
+        return _error('La imagen no se pudo procesar', 200, PASO_LAMBDA, detalle_error, extra={
+            'success': False,
             'producto_id': producto_id,
-            'estado_rds': 'PUBLICADO' if estado_final == ESTADO_LISTA else 'PENDIENTE',
+            'estado_rds': 'PENDIENTE',
             'estado_procesamiento': estado_final,
-            'detalle': detalle_error,
-            'mensaje': 'Imagen reprocesada' if estado_final == ESTADO_LISTA
-                       else 'La imagen no se pudo procesar'
-        }), 200
+            'reintentable': True
+        })
 
     except Exception as e:
         logger.error(f"Error en POST /productos/<id>/reprocesar: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 502
+        return _error('Error interno del servidor', 502, PASO_LAMBDA, str(e))
 
 
 # ============================================================================
@@ -382,7 +414,7 @@ def listar_productos():
     try:
         productos = RDSDatabase.obtener_productos_publicados()
         if productos is None:
-            return jsonify({'error': 'Fallo al consultar productos'}), 502
+            return _error('Fallo al consultar productos', 502, PASO_RDS)
 
         productos_enriquecidos = [_enriquecer(prod) for prod in productos]
 
@@ -394,7 +426,7 @@ def listar_productos():
 
     except Exception as e:
         logger.error(f"Error en GET /productos: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 502
+        return _error('Error interno del servidor', 502, PASO_RDS, str(e))
 
 
 # ============================================================================
@@ -409,10 +441,13 @@ def obtener_producto(producto_id):
         producto = RDSDatabase.obtener_producto(producto_id)
 
         if not producto:
-            return jsonify({'error': 'Producto no encontrado'}), 404
+            return _error('Producto no encontrado', 404, PASO_RDS)
 
         producto = _enriquecer(producto, incluir_descripcion=True)
         producto['fecha'] = str(producto.pop('fecha_creacion'))
+        producto['reintentable'] = (
+            producto['estado'] == 'PENDIENTE' and producto['estado_imagen'] == ESTADO_ERROR
+        )
 
         return jsonify({
             'success': True,
@@ -421,7 +456,7 @@ def obtener_producto(producto_id):
 
     except Exception as e:
         logger.error(f"Error en GET /productos/<id>: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 502
+        return _error('Error interno del servidor', 502, PASO_RDS, str(e))
 
 
 # ============================================================================
@@ -435,20 +470,19 @@ def obtener_imagen(producto_id):
     try:
         atributos = DynamoDBService.obtener_atributos(producto_id)
         if not atributos:
-            return jsonify({'error': 'Producto no encontrado'}), 404
+            return _error('Producto no encontrado', 404, PASO_DYNAMODB)
 
         # La clave la calcula lambda/handler.py, hay que leerla de DynamoDB
         miniatura_key = atributos.get('miniatura_key')
         if not miniatura_key:
-            return jsonify({
-                'error': 'Miniatura no disponible',
-                'detalle': f"Estado del procesamiento: {atributos.get('imagen_estado', 'NO_REGISTRADA')}"
-            }), 404
+            return _error('Miniatura no disponible', 404, PASO_S3_MINIATURA,
+                          f"Estado del procesamiento: {atributos.get('imagen_estado', 'NO_REGISTRADA')}")
 
         imagen_bytes, content_type = S3Service.obtener_miniatura(miniatura_key)
 
         if imagen_bytes is None:
-            return jsonify({'error': 'Miniatura no disponible'}), 404
+            return _error('Miniatura no disponible', 404, PASO_S3_MINIATURA,
+                          f'La clave {miniatura_key} no existe en el bucket de miniaturas')
 
         return send_file(
             BytesIO(imagen_bytes),
@@ -459,7 +493,7 @@ def obtener_imagen(producto_id):
 
     except Exception as e:
         logger.error(f"Error en GET /productos/<id>/imagen: {e}")
-        return jsonify({'error': 'Error interno del servidor'}), 502
+        return _error('Error interno del servidor', 502, PASO_S3_MINIATURA, str(e))
 
 
 # ============================================================================
@@ -476,17 +510,17 @@ def health():
 # ============================================================================
 @app.errorhandler(400)
 def bad_request(e):
-    return jsonify({'error': 'Solicitud inválida'}), 400
+    return _error('Solicitud inválida', 400, PASO_VALIDACION)
 
 
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({'error': 'Recurso no encontrado'}), 404
+    return _error('Recurso no encontrado', 404, PASO_LECTURA)
 
 
 @app.errorhandler(500)
 def internal_error(e):
-    return jsonify({'error': 'Error interno del servidor'}), 500
+    return _error('Error interno del servidor', 500, PASO_LECTURA)
 
 
 if __name__ == '__main__':

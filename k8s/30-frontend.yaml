@@ -1,0 +1,63 @@
+# Frontend estatico. Una replica basta: nginx sirve archivos y no lleva estado.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lomax-frontend
+  namespace: lomax
+  labels:
+    app: lomax-frontend
+    app.kubernetes.io/part-of: lomax-sa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lomax-frontend
+  template:
+    metadata:
+      labels:
+        app: lomax-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: localhost:4566/000000000000/us-east-1/lomax-frontend:__IMAGE_TAG__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lomax-frontend
+  namespace: lomax
+  labels:
+    app: lomax-frontend
+    app.kubernetes.io/part-of: lomax-sa
+spec:
+  type: ClusterIP
+  selector:
+    app: lomax-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

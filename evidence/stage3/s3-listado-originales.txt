@@ -1,0 +1,4 @@
+2026-09-29 08:35:17      18138 originales/24/lomax-1200x800.jpg
+2026-09-29 08:35:18       6044 originales/25/lomax-1200x800.png
+2026-09-29 08:35:19         34 originales/26/archivo-invalido.jpg
+2026-09-29 08:35:20    5242881 originales/27/imagen-mayor-a-5MiB.jpg

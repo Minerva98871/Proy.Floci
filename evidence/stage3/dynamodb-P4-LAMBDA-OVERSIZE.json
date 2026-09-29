@@ -1,0 +1,24 @@
+{
+    "Item":  {
+                 "codigo":  {
+                                "S":  "P4-LAMBDA-OVERSIZE"
+                            },
+                 "producto_id":  {
+                                     "N":  "27"
+                                 },
+                 "imagen_estado":  {
+                                       "S":  "ERROR"
+                                   },
+                 "atributos":  {
+                                   "M":  {
+
+                                         }
+                               },
+                 "imagen_original_key":  {
+                                             "S":  "originales/27/imagen-mayor-a-5MiB.jpg"
+                                         },
+                 "imagen_error":  {
+                                      "S":  "La imagen supera el limite de 5 MiB."
+                                  }
+             }
+}

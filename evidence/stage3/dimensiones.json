@@ -1,0 +1,12 @@
+{
+  "original-descargado.jpg": {
+    "ancho": 1200,
+    "alto": 800,
+    "formato": "JPEG"
+  },
+  "miniatura-lomax.jpg": {
+    "ancho": 300,
+    "alto": 200,
+    "formato": "JPEG"
+  }
+}

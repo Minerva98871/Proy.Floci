@@ -1,0 +1,78 @@
+# API de Lomax SA. Tres replicas, todas imagenes del registro ECR de la
+# Etapa 6: el clúster no reconstruye nada, descarga exactamente lo que se
+# publico.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lomax-backend
+  namespace: lomax
+  labels:
+    app: lomax-backend
+    app.kubernetes.io/part-of: lomax-sa
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: lomax-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: lomax-backend
+    spec:
+      # Repartir los Pods es irrelevante con un solo nodo, pero se deja
+      # declarado para que el manifiesto sea el que se usaria en un clúster
+      # con varios nodos de trabajo.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: lomax-backend
+      containers:
+        - name: backend
+          image: localhost:4566/000000000000/us-east-1/lomax-backend:__IMAGE_TAG__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: lomax-config
+          env:
+            - name: RDS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lomax-secrets
+                  key: RDS_PASSWORD
+          # El Pod no debe recibir trafico hasta que la API conecte de verdad
+          # con RDS. Sin esto, un Pod recien arrancado podria responder 502 y el
+          # proxy lo enviaria a un cliente.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 4
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
